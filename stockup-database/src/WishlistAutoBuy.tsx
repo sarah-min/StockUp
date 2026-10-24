@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { DbConnection, tables } from './module_bindings';
+import DevPanel from './DevPanel';
 
 type Toast = { id: number; tone: 'good' | 'bad'; title: string; detail: string };
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -78,12 +79,12 @@ export default function WishlistAutoBuy() {
   }, [value, settings, isActive, rows.length]);
 
   return <>
-    <div className="autobuy card">
-      <div className="card-label">WISHLIST AUTO-BUY</div>
+    {/* TO_REMOVE: this panel is only a temporary control. The profit-watching effect above is the real feature, so keep or move it. */}
+    <DevPanel id="autobuy" title="Wishlist auto-buy" className="autobuy">
       <div className="autobuy-row"><span>Realized profit</span><strong>{value === null ? '…' : money.format(value)}</strong></div>
       <div className="autobuy-row"><span>Buy at</span><input type="number" min="0.01" step="0.01" value={settings.threshold} onChange={(event) => update({ ...settings, threshold: Math.max(0.01, Number(event.target.value)) })} aria-label="Auto-buy threshold in dollars" /></div>
       <label className="autobuy-row"><span>{items.length} on wishlist</span><input type="checkbox" checked={settings.enabled} onChange={(event) => update({ ...settings, enabled: event.target.checked })} /></label>
-    </div>
+    </DevPanel>
     <div className="toasts" aria-live="polite">{toasts.map((entry) => <div key={entry.id} className={`toast toast-${entry.tone}`}><strong>{entry.title}</strong><span>{entry.detail}</span><button onClick={() => setToasts((current) => current.filter((other) => other.id !== entry.id))} aria-label="Dismiss">×</button></div>)}</div>
   </>;
 }

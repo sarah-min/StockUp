@@ -61,8 +61,11 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <SpacetimeDBProvider connectionBuilder={connectionBuilder}>
       <App />
-      <WishlistAutoBuy />
-      <DemoTrader />
+      {/* TO_REMOVE: temporary corner panels for demoing the wishlist auto-buy (see DevPanel.tsx) */}
+      <div className="dev-dock">
+        <DemoTrader />
+        <WishlistAutoBuy />
+      </div>
     </SpacetimeDBProvider>
   </StrictMode>,
 );

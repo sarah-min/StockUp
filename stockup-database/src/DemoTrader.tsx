@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import DevPanel from './DevPanel';
 
-// TEMPORARY: a bare-bones buy/sell box for demoing the wishlist auto-buy (which fires on realized profit).
+// TO_REMOVE: TEMPORARY: a bare-bones buy/sell box for demoing the wishlist auto-buy (which fires on realized profit).
 // Self-contained and mounted from main.tsx so the real trading UI in App.tsx can change freely. Delete when no longer needed.
 type Position = { symbol: string; quantity: number; cost: number; price: number; value: number };
 type Portfolio = { positions: Position[]; realized_profit: number };
@@ -30,8 +31,7 @@ export default function DemoTrader() {
     finally { setBusy(false); }
   };
 
-  return <div className="demo-trader card">
-    <div className="card-label">DEMO TRADER (TEMP)</div>
+  return <DevPanel id="demo-trader" title="Demo trader" className="demo-trader">
     <div className="autobuy-row"><span>Symbol</span><input value={symbol} onChange={(event) => setSymbol(event.target.value)} aria-label="Symbol" /></div>
     <div className="autobuy-row"><span>Amount $</span><input type="number" min="1" value={amount} onChange={(event) => setAmount(Number(event.target.value))} aria-label="Amount in dollars" /></div>
     <div className="autobuy-row"><span>Fill price</span><input type="number" min="0" placeholder="live" value={fillPrice} onChange={(event) => setFillPrice(event.target.value)} aria-label="Optional fill price override" /></div>
@@ -39,5 +39,5 @@ export default function DemoTrader() {
     {message && <p className="helper">{message}</p>}
     <div className="demo-holdings">{portfolio?.positions.length ? portfolio.positions.map((position) => <div key={position.symbol}>{position.symbol}: {position.quantity.toFixed(6)} ({money.format(position.value)})</div>) : 'No open positions'}</div>
     <div className="autobuy-row"><span>Realized profit</span><strong>{money.format(portfolio?.realized_profit ?? 0)}</strong></div>
-  </div>;
+  </DevPanel>;
 }
