@@ -8,18 +8,80 @@ import {
   t as __t,
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
-} from 'spacetimedb';
+} from "spacetimedb";
 
-export const Message = __t.object('Message', {
-  sender: __t.identity(),
-  sent: __t.timestamp(),
-  text: __t.string(),
+export const Agent = __t.object("Agent", {
+  id: __t.u64(),
+  userId: __t.u64(),
+  name: __t.string(),
+  apiEndpoint: __t.string(),
+  balanceCents: __t.u64(),
+  enabled: __t.bool(),
+  personality: __t.string(),
 });
-export type Message = __Infer<typeof Message>;
+export type Agent = __Infer<typeof Agent>;
 
-export const User = __t.object('User', {
-  identity: __t.identity(),
-  name: __t.option(__t.string()),
-  online: __t.bool(),
+export const AgentPosition = __t.object("AgentPosition", {
+  id: __t.u64(),
+  agentId: __t.u64(),
+  symbol: __t.string(),
+  quantity: __t.u64(),
+});
+export type AgentPosition = __Infer<typeof AgentPosition>;
+
+export const CoinbaseAccount = __t.object("CoinbaseAccount", {
+  userId: __t.u64(),
+  coinbaseAccountId: __t.string(),
+});
+export type CoinbaseAccount = __Infer<typeof CoinbaseAccount>;
+
+export const Config = __t.object("Config", {
+  key: __t.string(),
+  userIdValue: __t.u64(),
+});
+export type Config = __Infer<typeof Config>;
+
+export const MarketPrice = __t.object("MarketPrice", {
+  symbol: __t.string(),
+  priceCents: __t.u64(),
+  updatedAt: __t.timestamp(),
+});
+export type MarketPrice = __Infer<typeof MarketPrice>;
+
+export const Trade = __t.object("Trade", {
+  id: __t.u64(),
+  userId: __t.u64(),
+  agentId: __t.u64(),
+  marketUserId: __t.u64(),
+  side: __t.string(),
+  symbol: __t.string(),
+  quantity: __t.u64(),
+  priceCents: __t.u64(),
+  totalCents: __t.u64(),
+  executedAt: __t.timestamp(),
+});
+export type Trade = __Infer<typeof Trade>;
+
+export const User = __t.object("User", {
+  id: __t.u64(),
+  name: __t.string(),
+  balanceCents: __t.u64(),
+  balanceStock: __t.u64(),
+  isMarket: __t.bool(),
 });
 export type User = __Infer<typeof User>;
+
+export const UserAuth = __t.object("UserAuth", {
+  identity: __t.identity(),
+  userId: __t.u64(),
+});
+export type UserAuth = __Infer<typeof UserAuth>;
+
+export const WishlistItem = __t.object("WishlistItem", {
+  id: __t.u64(),
+  userId: __t.u64(),
+  symbol: __t.string(),
+  targetPriceCents: __t.u64(),
+});
+export type WishlistItem = __Infer<typeof WishlistItem>;
+

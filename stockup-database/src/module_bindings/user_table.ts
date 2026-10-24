@@ -8,10 +8,12 @@ import {
   t as __t,
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
-} from 'spacetimedb';
+} from "spacetimedb";
 
 export default __t.row({
-  identity: __t.identity().primaryKey(),
-  name: __t.option(__t.string()),
-  online: __t.bool(),
+  id: __t.u64().primaryKey(),
+  name: __t.string(),
+  balanceCents: __t.u64().name("balance_cents"),
+  balanceStock: __t.u64().name("balance_stock"),
+  isMarket: __t.bool().name("is_market"),
 });

@@ -6,9 +6,10 @@ export const createAgent = spacetimedb.reducer(
   {
     name: t.string(),
     apiEndpoint: t.string(),
+    personality: t.string(),
     initialBalanceCents: t.u64(),
   },
-  (ctx, { name, apiEndpoint, initialBalanceCents }) => {
+  (ctx, { name, apiEndpoint, personality, initialBalanceCents }) => {
     const currentUser = requireCurrentUser(ctx);
 
     if (initialBalanceCents > currentUser.balanceCents) {
@@ -23,6 +24,7 @@ export const createAgent = spacetimedb.reducer(
       userId: currentUser.id,
       name,
       apiEndpoint,
+      personality,
       balanceCents: initialBalanceCents,
       enabled: true,
     });
