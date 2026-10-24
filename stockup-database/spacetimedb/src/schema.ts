@@ -99,6 +99,80 @@ const wishlistItem = table(
   }
 );
 
+const wishlistProduct = table(
+  {
+    name: "wishlist_product",
+    public: true,
+    indexes: [
+      {
+        accessor: "wishlist_product_by_owner",
+        algorithm: "btree",
+        columns: ["owner"],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    owner: t.identity(),
+    url: t.string(),
+    retailer: t.string(),
+    title: t.string(),
+    brand: t.option(t.string()),
+    image: t.option(t.string()),
+    priceCents: t.u64(),
+  }
+);
+
+const wishlistOrder = table(
+  {
+    name: "wishlist_order",
+    public: true,
+    indexes: [
+      {
+        accessor: "wishlist_order_by_owner",
+        algorithm: "btree",
+        columns: ["owner"],
+      },
+      {
+        accessor: "wishlist_order_by_status",
+        algorithm: "btree",
+        columns: ["status"],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    owner: t.identity(),
+    url: t.string(),
+    retailer: t.string(),
+    title: t.string(),
+    priceCents: t.u64(),
+    // pending -> placing -> placed -> delivered, or failed. Only the order server moves it past pending.
+    status: t.string(),
+    zincOrderId: t.option(t.string()),
+    totalCents: t.option(t.u64()),
+    carrier: t.option(t.string()),
+    trackingNumber: t.option(t.string()),
+    trackingUrl: t.option(t.string()),
+    estimatedDelivery: t.option(t.string()),
+    error: t.option(t.string()),
+    createdAt: t.timestamp(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// Singleton row naming the one identity (the API server) allowed to place and update orders.
+const orderServer = table(
+  {
+    name: "order_server",
+    public: false,
+  },
+  {
+    id: t.u64().primaryKey(),
+    identity: t.identity(),
+  }
+);
+
 const agentPosition = table(
   {
     name: "agent_position",
@@ -186,6 +260,9 @@ const spacetimedb = schema({
   coinbaseAccount,
   agent,
   wishlistItem,
+  wishlistProduct,
+  wishlistOrder,
+  orderServer,
   agentPosition,
   marketPrice,
   trade,

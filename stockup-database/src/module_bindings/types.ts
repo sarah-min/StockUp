@@ -48,6 +48,12 @@ export const MarketPrice = __t.object("MarketPrice", {
 });
 export type MarketPrice = __Infer<typeof MarketPrice>;
 
+export const OrderServer = __t.object("OrderServer", {
+  id: __t.u64(),
+  identity: __t.identity(),
+});
+export type OrderServer = __Infer<typeof OrderServer>;
+
 export const Trade = __t.object("Trade", {
   id: __t.u64(),
   userId: __t.u64(),
@@ -84,4 +90,36 @@ export const WishlistItem = __t.object("WishlistItem", {
   targetPriceCents: __t.u64(),
 });
 export type WishlistItem = __Infer<typeof WishlistItem>;
+
+export const WishlistOrder = __t.object("WishlistOrder", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  url: __t.string(),
+  retailer: __t.string(),
+  title: __t.string(),
+  priceCents: __t.u64(),
+  status: __t.string(),
+  zincOrderId: __t.option(__t.string()),
+  totalCents: __t.option(__t.u64()),
+  carrier: __t.option(__t.string()),
+  trackingNumber: __t.option(__t.string()),
+  trackingUrl: __t.option(__t.string()),
+  estimatedDelivery: __t.option(__t.string()),
+  error: __t.option(__t.string()),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type WishlistOrder = __Infer<typeof WishlistOrder>;
+
+export const WishlistProduct = __t.object("WishlistProduct", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  url: __t.string(),
+  retailer: __t.string(),
+  title: __t.string(),
+  brand: __t.option(__t.string()),
+  image: __t.option(__t.string()),
+  priceCents: __t.u64(),
+});
+export type WishlistProduct = __Infer<typeof WishlistProduct>;
 

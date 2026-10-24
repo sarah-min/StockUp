@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import "./App.css";
-import { useReducer, useTable } from "spacetimedb/react";
+import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "./module_bindings";
+import Wishlist from "./Wishlist";
 
 type AssetType = "crypto" | "stock";
 type Proposal = {
@@ -40,6 +41,7 @@ type AgentSettings = {
   allocation: number;
   personality: string;
 };
+const MIN_AGENT_ALLOCATION = 1; // dollars every agent must get
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -65,10 +67,11 @@ function App() {
   const [trade, setTrade] = useState<Trade | null>(null);
   const [dbTrades] = useTable(tables.trade);
   const [loading, setLoading] = useState(false);
+  const [wishlistOpen, setWishlistOpen] = useState(false);
   const [error, setError] = useState("");
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
     {
-      allocation: 0,
+      allocation: MIN_AGENT_ALLOCATION,
       personality: "personality-1",
     },
   ]);
@@ -78,31 +81,44 @@ function App() {
   const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
   const [agentsCreated, setAgentsCreated] = useState(false);
   const createUser = useReducer(reducers.createUser); // use your actual reducer name
-  const [users] = useTable(tables.user);
+  const { identity, isActive } = useSpacetimeDB();
 
-  // dummy user for testing
+  // dummy user for testing: every browser identity needs its own user before it can create agents.
+  // (The user table is public and shared, so "no users exist" is not the same as "this identity has no user".)
+  // user_auth is private, so remember per identity that we already tried, and treat "already has a user" as success.
   useEffect(() => {
-    // users is already filtered to what you can see; if you can see none, create one
-    if (users.length === 0) {
-      createUser({
-        name: "Test User",
-        startingBalanceCents: 100000n,
-        coinbaseAccountId: "fake_id",
-      }).catch(console.error); // match your real args
+    if (!isActive || !identity) return;
+    const flag = `stockup.userCreated.${identity.toHexString()}`;
+    try {
+      if (localStorage.getItem(flag)) return;
+    } catch {
+      /* storage unavailable: just try */
     }
-  }, [users.length]);
+    createUser({
+      name: "Test User",
+      startingBalanceCents: 100000n,
+      // coinbaseAccountId is unique across users, so a shared "fake_id" makes every user after the first fail.
+      coinbaseAccountId: `fake_${identity.toHexString().slice(0, 16)}`,
+    })
+      .then(() => true)
+      .catch((err: unknown) => /already has a user/i.test(String(err)))
+      .then((done) => {
+        if (!done) return;
+        try {
+          localStorage.setItem(flag, "1");
+        } catch {
+          /* storage unavailable */
+        }
+      });
+  }, [isActive, identity]);
 
   async function saveAgents() {
-    if (remainingBudget < 0) {
-      setError("Agent allocations exceed your budget");
+    if (!allocationsValid) {
+      setError(allocationError);
       return;
     }
 
-    if (agentSettings.some((agent) => agent.allocation < 0)) {
-      throw new Error("Every agent must have a positive allocation");
-    }
-
-    for (const [index, agent] of agentSettings.entries()) {
+    for (const [index, agent] of agentAllocations.entries()) {
       await createAgent({
         name: `Agent ${index + 1}`,
         apiEndpoint: `/api/agents/${index + 1}`,
@@ -126,8 +142,8 @@ function App() {
     setTrade(null);
 
     try {
-      if (remainingBudget < 0) {
-        throw new Error("Agent allocations exceed your budget");
+      if (!allocationsValid) {
+        throw new Error(allocationError);
       }
 
       if (!agentsCreated) {
@@ -139,7 +155,7 @@ function App() {
         body: JSON.stringify({
           budget,
           assetType,
-          agents: agentSettings.map((agent, index) => ({
+          agents: agentAllocations.map((agent, index) => ({
             name: `Agent ${index + 1}`,
             allocation: agent.allocation,
             personality: agent.personality,
@@ -163,19 +179,34 @@ function App() {
         { length: agentNum },
         (_, index) =>
           current[index] ?? {
-            allocation: 0,
+            allocation: MIN_AGENT_ALLOCATION,
             personality: "personality-1",
           },
       ),
     );
   }, [agentNum]);
 
-  const allocatedBudget = agentSettings.reduce(
-    (total, agent) => total + agent.allocation,
-    0,
+  // The last agent always gets whatever the other agents leave over, so allocations always add up to the budget.
+  // It goes negative (and is flagged as an error) if the other agents already exceed the budget.
+  const lastAgentIndex = agentSettings.length - 1;
+  const otherAllocations = agentSettings
+    .slice(0, lastAgentIndex)
+    .reduce((total, agent) => total + agent.allocation, 0);
+  const remainingBudget = budget - otherAllocations;
+  const agentAllocations = agentSettings.map((agent, index) =>
+    index === lastAgentIndex
+      ? { ...agent, allocation: remainingBudget }
+      : agent,
   );
-
-  const remainingBudget = budget - allocatedBudget;
+  const allocationError =
+    remainingBudget < MIN_AGENT_ALLOCATION
+      ? remainingBudget < 0
+        ? "Agent allocations exceed your budget"
+        : `The last agent only gets $${remainingBudget.toFixed(2)}; every agent needs at least $${MIN_AGENT_ALLOCATION}`
+      : `Every agent needs at least $${MIN_AGENT_ALLOCATION}`;
+  const allocationsValid = agentAllocations.every(
+    (agent) => agent.allocation >= MIN_AGENT_ALLOCATION,
+  );
 
   function updateAgentAllocation(index: number, allocation: number) {
     setAgentsCreated(false);
@@ -242,6 +273,9 @@ function App() {
         <div className="brand">
           <span className="brand-mark">↗</span> StockUp
         </div>
+        <button className="wish-open" onClick={() => setWishlistOpen(true)}>
+          ♡ Wishlist
+        </button>
         <div className="mode-pill">
           <span className="dot" /> SIMULATION MODE
         </div>
@@ -322,10 +356,13 @@ function App() {
             <h3>Configure your agents</h3>
 
             <div className="agent-allocation-grid">
-              {agentSettings.map((agent, index) => (
+              {agentAllocations.map((agent, index) => (
                 <div className="agent-allocation-card" key={index}>
                   <label htmlFor={`agent-${index}-allocation`}>
                     Agent {index + 1}
+                    {index === lastAgentIndex && agentAllocations.length > 1
+                      ? " (rest)"
+                      : ""}
                   </label>
 
                   <div className="agent-allocation-input">
@@ -337,6 +374,9 @@ function App() {
                       min="0"
                       max={budget}
                       step="1"
+                      readOnly={
+                        index === lastAgentIndex && agentAllocations.length > 1
+                      }
                       value={agent.allocation === 0 ? "" : agent.allocation}
                       onChange={(event) =>
                         updateAgentAllocation(index, Number(event.target.value))
@@ -367,9 +407,9 @@ function App() {
               ))}
             </div>
 
-            <p className={remainingBudget < 0 ? "budget-error" : ""}>
-              Remaining budget: ${remainingBudget.toFixed(2)}
-            </p>
+            {!allocationsValid && (
+              <p className="budget-error">{allocationError}</p>
+            )}
           </div>
 
           <p className="helper">
@@ -382,7 +422,7 @@ function App() {
           <button
             className="primary"
             onClick={generateProposal}
-            disabled={loading || budget <= 0}
+            disabled={loading || budget <= 0 || !allocationsValid}
           >
             {loading ? "Running CREAO…" : "Generate strategy →"}
           </button>
@@ -525,6 +565,7 @@ function App() {
             ))
         )}
       </section>
+      {wishlistOpen && <Wishlist onClose={() => setWishlistOpen(false)} />}
       <footer>
         StockUp is a simulation. Not investment advice. No live orders are
         enabled.

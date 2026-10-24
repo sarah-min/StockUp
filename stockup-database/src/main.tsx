@@ -2,6 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
+import WishlistAutoBuy from "./WishlistAutoBuy.tsx";
+import DemoTrader from "./DemoTrader.tsx";
 import { Identity } from "spacetimedb";
 import { SpacetimeDBProvider } from "spacetimedb/react";
 import { DbConnection, ErrorContext, tables } from "./module_bindings/index.ts";
@@ -59,6 +61,11 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <SpacetimeDBProvider connectionBuilder={connectionBuilder}>
       <App />
+      {/* TO_REMOVE: temporary corner panels for demoing the wishlist auto-buy (see DevPanel.tsx) */}
+      <div className="dev-dock">
+        <DemoTrader />
+        <WishlistAutoBuy />
+      </div>
     </SpacetimeDBProvider>
   </StrictMode>,
 );

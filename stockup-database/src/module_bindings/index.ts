@@ -35,9 +35,14 @@ import {
 
 // Import all reducer arg schemas
 import AddWishlistItemReducer from "./add_wishlist_item_reducer";
+import AddWishlistProductReducer from "./add_wishlist_product_reducer";
+import BeginPurchaseReducer from "./begin_purchase_reducer";
+import ClaimOrderServerReducer from "./claim_order_server_reducer";
 import CreateAgentReducer from "./create_agent_reducer";
 import CreateUserReducer from "./create_user_reducer";
 import ExecuteTradeReducer from "./execute_trade_reducer";
+import RemoveWishlistProductReducer from "./remove_wishlist_product_reducer";
+import SyncOrderReducer from "./sync_order_reducer";
 
 // Import all procedure arg schemas
 
@@ -48,6 +53,8 @@ import MarketPriceRow from "./market_price_table";
 import TradeRow from "./trade_table";
 import UserRow from "./user_table";
 import WishlistItemRow from "./wishlist_item_table";
+import WishlistOrderRow from "./wishlist_order_table";
+import WishlistProductRow from "./wishlist_product_table";
 
 /** Type-only namespace exports for generated type groups. */
 
@@ -138,14 +145,50 @@ const tablesSchema = __schema({
       { name: 'wishlist_item_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, WishlistItemRow),
+  wishlistOrder: __table({
+    name: 'wishlist_order',
+    indexes: [
+      { accessor: 'id', name: 'wishlist_order_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'wishlist_order_by_owner', name: 'wishlist_order_owner_idx_btree', algorithm: 'btree', columns: [
+        'owner',
+      ] },
+      { accessor: 'wishlist_order_by_status', name: 'wishlist_order_status_idx_btree', algorithm: 'btree', columns: [
+        'status',
+      ] },
+    ],
+    constraints: [
+      { name: 'wishlist_order_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, WishlistOrderRow),
+  wishlistProduct: __table({
+    name: 'wishlist_product',
+    indexes: [
+      { accessor: 'id', name: 'wishlist_product_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'wishlist_product_by_owner', name: 'wishlist_product_owner_idx_btree', algorithm: 'btree', columns: [
+        'owner',
+      ] },
+    ],
+    constraints: [
+      { name: 'wishlist_product_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, WishlistProductRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("add_wishlist_item", AddWishlistItemReducer),
+  __reducerSchema("add_wishlist_product", AddWishlistProductReducer),
+  __reducerSchema("begin_purchase", BeginPurchaseReducer),
+  __reducerSchema("claim_order_server", ClaimOrderServerReducer),
   __reducerSchema("create_agent", CreateAgentReducer),
   __reducerSchema("create_user", CreateUserReducer),
   __reducerSchema("execute_trade", ExecuteTradeReducer),
+  __reducerSchema("remove_wishlist_product", RemoveWishlistProductReducer),
+  __reducerSchema("sync_order", SyncOrderReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

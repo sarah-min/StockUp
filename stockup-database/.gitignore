@@ -8,3 +8,5 @@ spacetime.local.json
 
 .env
 .env.local
+
+.stockup-server-token
