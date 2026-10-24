@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { DbConnection, tables } from './module_bindings';
 
-type Order = { order_id: string; status: string; delivered: boolean; total_cents: number | null; estimated_delivery: string | null; carrier: string | null; tracking_number: string | null; tracking_url: string | null };
 type Toast = { id: number; tone: 'good' | 'bad'; title: string; detail: string };
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const STORAGE_KEY = 'stockup.autobuy';
@@ -19,18 +18,32 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
   return body;
 }
 
-// Watches realized paper-trading profit (closed buy -> sell round trips) and, each time it reaches the threshold, "buys" the oldest wishlist item through Zinc.
+// Watches realized paper-trading profit (closed buy -> sell round trips) and, each time it reaches the threshold, starts a purchase of the
+// oldest wishlist item. beginPurchase atomically turns that item into a pending order row; the API server's order worker then places it
+// with Zinc and keeps the row updated, and the toasts below come from those row updates.
 // Rendered next to <App /> (inside the SpacetimeDB provider) so it keeps running while the wishlist modal is closed.
 export default function WishlistAutoBuy() {
   const { isActive, identity, getConnection } = useSpacetimeDB();
   const [rows] = useTable(tables.wishlistProduct);
+  const isMine = (owner: { toHexString(): string }) => owner.toHexString() === identity?.toHexString();
+  useTable(tables.wishlistOrder, {
+    onUpdate: (before, after) => {
+      if (!isMine(after.owner) || before.status === after.status) return;
+      const price = after.totalCents ? ` for ${money.format(Number(after.totalCents) / 100)}` : '';
+      if (after.status === 'placed') {
+        const arrival = after.estimatedDelivery ? `arriving ${new Date(after.estimatedDelivery).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}` : after.carrier ? `shipping via ${after.carrier}${after.trackingNumber ? ` · ${after.trackingNumber}` : ''}` : 'order placed, tracking soon';
+        toast('good', `Bought "${after.title}"${price} 🎉`, arrival);
+      } else if (after.status === 'delivered') toast('good', 'Delivered! 📦', `"${after.title}" has arrived.`);
+      else if (after.status === 'failed') toast('bad', `Couldn't buy "${after.title}"`, after.error ?? 'The order failed. Add it to your wishlist again to retry.');
+    },
+  });
   const [settings, setSettings] = useState(loadSettings);
   const [value, setValue] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const busy = useRef(false);
   const failed = useRef(new Set<string>());
 
-  const items = rows.filter((row) => row.owner.toHexString() === identity?.toHexString()).sort((a, b) => Number(a.id - b.id));
+  const items = rows.filter((row) => isMine(row.owner)).sort((a, b) => Number(a.id - b.id));
   const update = (next: typeof settings) => { setSettings(next); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ } };
   const toast = useCallback((tone: Toast['tone'], title: string, detail: string) => {
     const id = Date.now() + Math.random();
@@ -45,16 +58,6 @@ export default function WishlistAutoBuy() {
     return () => clearInterval(timer);
   }, []);
 
-  const watchDelivery = useCallback((title: string, orderId: string) => {
-    const timer = setInterval(async () => {
-      try {
-        const { order } = await api<{ order: Order }>(`/api/wishlist/order/${orderId}`);
-        if (order.delivered) { clearInterval(timer); toast('good', 'Delivered! 📦', `${title} has arrived.`); }
-      } catch { clearInterval(timer); }
-    }, 4000);
-    setTimeout(() => clearInterval(timer), 120_000);
-  }, [toast]);
-
   useEffect(() => {
     const item = items.find((entry) => !failed.current.has(String(entry.id)));
     if (!settings.enabled || !isActive || !item || value === null || value < settings.threshold || busy.current) return;
@@ -62,15 +65,13 @@ export default function WishlistAutoBuy() {
     const conn = getConnection() as DbConnection | null;
     void (async () => {
       try {
-        const { order } = await api<{ order: Order }>('/api/wishlist/purchase', { method: 'POST', body: JSON.stringify({ item: { id: String(item.id), url: item.url, title: item.title, price_cents: Number(item.priceCents) } }) });
-        const arrival = order.estimated_delivery ? `arriving ${new Date(order.estimated_delivery).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}` : order.carrier ? `shipping via ${order.carrier}${order.tracking_number ? ` · ${order.tracking_number}` : ''}` : 'order placed, tracking soon';
-        toast('good', `OMG! You've made ${money.format(settings.threshold)} in profit 🎉`, `We bought "${item.title}"${order.total_cents ? ` for ${money.format(order.total_cents / 100)}` : ''}: ${arrival}.`);
+        await conn?.reducers.beginPurchase({ productId: item.id });
+        toast('good', `OMG! You've made ${money.format(settings.threshold)} in profit 🎉`, `Buying "${item.title}" from your wishlist…`);
         update({ ...settings, threshold: settings.threshold + settings.step });
-        void conn?.reducers.removeWishlistProduct({ id: item.id }).catch(console.error);
-        watchDelivery(item.title, order.order_id);
       } catch (err) {
         failed.current.add(String(item.id));
-        toast('bad', `Couldn't buy "${item.title}"`, err instanceof Error ? err.message : 'Purchase failed');
+        // "not found" means another tab already started this purchase, which is exactly what the guard is for.
+        if (!(err instanceof Error && /not found/i.test(err.message))) toast('bad', `Couldn't start buying "${item.title}"`, err instanceof Error ? err.message : 'Purchase failed');
       } finally { busy.current = false; }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

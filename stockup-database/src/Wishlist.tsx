@@ -11,8 +11,10 @@ type Props = { onClose: () => void };
 export default function Wishlist({ onClose }: Props) {
   const { isActive, identity, getConnection } = useSpacetimeDB();
   const [rows] = useTable(tables.wishlistProduct);
+  const [orderRows] = useTable(tables.wishlistOrder);
   // The table is public, so only show rows this browser's identity owns.
   const items: SavedProduct[] = rows.filter((row) => row.owner.toHexString() === identity?.toHexString());
+  const orders = orderRows.filter((row) => row.owner.toHexString() === identity?.toHexString()).sort((a, b) => Number(b.id - a.id));
   const conn = getConnection() as DbConnection | null;
   const onAdd = (item: WishlistProduct) => {
     if (!conn || !isActive) return;
@@ -50,5 +52,6 @@ export default function Wishlist({ onClose }: Props) {
       <div><div className="card-label">RESULTS</div>{results.length === 0 ? <p className="history-empty">Search to find something to add.</p> : results.map((item) => <div className="wish-row" key={item.url}><div><strong>{item.title}</strong><span>{item.retailer}{item.brand ? ` · ${item.brand}` : ''}{item.stars ? ` · ★${item.stars}` : ''}</span></div><span>{money.format(item.price_cents / 100)}</span><button className="secondary" disabled={!isActive || saved.has(item.url)} onClick={() => onAdd(item)}>{saved.has(item.url) ? 'Added' : 'Add'}</button></div>)}</div>
       <div><div className="card-label">YOUR WISHLIST ({items.length})</div>{items.length === 0 ? <p className="history-empty">Nothing yet.</p> : items.map((item) => <div className="wish-row" key={String(item.id)}><div><strong>{item.title}</strong><span>{item.retailer}</span></div><span>{money.format(Number(item.priceCents) / 100)}</span><button className="secondary" onClick={() => onRemove(item.id)}>Remove</button></div>)}</div>
     </div>
+    {orders.length > 0 && <div className="wish-orders"><div className="card-label">ORDERS ({orders.length})</div>{orders.map((order) => <div className="wish-row" key={String(order.id)}><div><strong>{order.title}</strong><span>{order.carrier ? `${order.carrier}${order.trackingNumber ? ` · ${order.trackingNumber}` : ''}` : order.error ?? order.retailer}</span></div><span>{order.totalCents ? money.format(Number(order.totalCents) / 100) : money.format(Number(order.priceCents) / 100)}</span><span className={`order-status order-${order.status}`}>{order.status}</span></div>)}</div>}
   </div></div>;
 }

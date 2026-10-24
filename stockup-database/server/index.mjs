@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -209,13 +210,12 @@ async function zincSearch(query) {
 
 const SANDBOX_ADDRESS = { first_name: 'Sandbox', last_name: 'Agent', address_line1: '101 Market St', city: 'San Francisco', state: 'CA', postal_code: '94105', phone_number: '4155552671', country: 'US' };
 const ZINC_SHIPPING_ADDRESS = process.env.ZINC_SHIPPING_ADDRESS ? JSON.parse(process.env.ZINC_SHIPPING_ADDRESS) : SANDBOX_ADDRESS;
-const purchasedKeys = new Set();
 
 async function zincFetch(path, options = {}) {
   if (!ZINC_API_KEY) throw new Error('ZINC_API_KEY is not set');
   const response = await fetch(`https://api.zinc.com${path}`, { ...options, headers: { Authorization: `Bearer ${ZINC_API_KEY}`, 'Content-Type': 'application/json' } });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || data.error || `Zinc request failed (${response.status})`);
+  if (!response.ok) { const failure = new Error(data.error?.message || data.message || (typeof data.error === 'string' && data.error) || `Zinc request failed (${response.status}): ${JSON.stringify(data).slice(0, 300)}`); failure.code = data.error?.code; throw failure; }
   return data;
 }
 
@@ -234,27 +234,114 @@ function orderSummary(order) {
   };
 }
 
-async function zincPurchase(item) {
-  const priceCents = Number(item?.price_cents);
-  if (!/^https:\/\//.test(String(item?.url)) || !Number.isInteger(priceCents) || priceCents <= 0) throw new Error('Invalid wishlist item');
-  const key = String(item.id ?? item.url);
-  if (purchasedKeys.has(key)) throw new Error('This item was already purchased');
-  purchasedKeys.add(key);
+const STDB_HTTP = process.env.SPACETIMEDB_HTTP || 'https://maincloud.spacetimedb.com';
+const STDB_DB = process.env.SPACETIMEDB_DB_NAME || 'stockup-db';
+const TOKEN_FILE = new URL('../.stockup-server-token', import.meta.url);
+let serverToken;
+
+// The API server has its own SpacetimeDB identity. It is the only identity the module lets place and update orders.
+async function stdbToken() {
+  if (serverToken) return serverToken;
+  serverToken = process.env.SPACETIMEDB_SERVER_TOKEN || (await readFile(TOKEN_FILE, 'utf8').catch(() => '')).trim();
+  if (!serverToken) {
+    const minted = await (await fetch(`${STDB_HTTP}/v1/identity`, { method: 'POST' })).json();
+    serverToken = minted.token;
+    await writeFile(TOKEN_FILE, serverToken, { mode: 0o600 });
+  }
+  return serverToken;
+}
+
+async function stdbCall(reducer, args) {
+  const response = await fetch(`${STDB_HTTP}/v1/database/${STDB_DB}/call/${reducer}`, { method: 'POST', headers: { Authorization: `Bearer ${await stdbToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!response.ok) throw new Error(`${reducer} failed: ${(await response.text()).trim()}`);
+}
+
+async function stdbRows(query) {
+  const response = await fetch(`${STDB_HTTP}/v1/database/${STDB_DB}/sql`, { method: 'POST', headers: { Authorization: `Bearer ${await stdbToken()}` }, body: query });
+  if (!response.ok) throw new Error(`SQL failed: ${(await response.text()).trim()}`);
+  const [result] = await response.json();
+  const names = result.schema.elements.map((element) => element.name.some);
+  return result.rows.map((row) => Object.fromEntries(row.map((value, index) => [names[index], value])));
+}
+
+const optional = (value) => (value === null || value === undefined ? { none: [] } : { some: value });
+// SQL results encode Option as [0, value] (some) or [1, []] (none) and Timestamp as [micros].
+const unwrap = (value) => (Array.isArray(value) && value[0] === 0 ? value[1] : null);
+
+async function syncOrder(id, status, summary = {}) {
+  await stdbCall('sync_order', [id, status, optional(summary.order_id), optional(summary.total_cents), optional(summary.carrier), optional(summary.tracking_number), optional(summary.tracking_url), optional(summary.estimated_delivery), optional(summary.error)]);
+}
+
+// Stable per order row, so retrying after a crash makes Zinc return the existing order instead of buying again.
+function idempotencyKey(row) {
+  return createHash('sha256').update(`${STDB_DB}:${row.id}:${JSON.stringify(row.owner)}:${JSON.stringify(row.created_at)}`).digest('hex').slice(0, 36);
+}
+
+async function placeOrder(row) {
+  const key = idempotencyKey(row);
+  let created;
   try {
     // Headroom over the listed price: tax and shipping are added at checkout.
-    const created = await zincFetch('/orders', { method: 'POST', body: JSON.stringify({ products: [{ url: item.url, quantity: 1 }], shipping_address: ZINC_SHIPPING_ADDRESS, max_price: Math.round(priceCents * 2) }) });
-    const deadline = Date.now() + 20_000;
-    let order = created;
-    while (Date.now() < deadline && !['order_placed', 'order_failed'].includes(order.status)) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      order = await zincFetch(`/orders/${created.id}`);
-    }
-    if (order.status === 'order_failed') throw new Error(order.job_result?.error || 'Zinc could not place the order');
-    return orderSummary(order);
+    created = await zincFetch('/orders', { method: 'POST', body: JSON.stringify({ products: [{ url: row.url, quantity: 1 }], shipping_address: ZINC_SHIPPING_ADDRESS, max_price: Math.round(Number(row.price_cents) * 2), idempotency_key: key, metadata: { stockup_order: key } }) });
   } catch (error) {
-    purchasedKeys.delete(key);
-    throw error;
+    if (error.code !== 'already_exists') throw error;
+    // An earlier attempt already created it (e.g. we crashed before saving the result): find it instead of buying again.
+    const found = await zincFetch(`/orders?${new URLSearchParams({ metadata_key: 'stockup_order', metadata_value: key, limit: '1' })}`);
+    if (!found.orders?.[0]) throw new Error('Zinc says this order exists but it could not be found');
+    created = found.orders[0];
   }
+  const deadline = Date.now() + 20_000;
+  let order = created;
+  while (Date.now() < deadline && !['order_placed', 'order_failed'].includes(order.status)) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    order = await zincFetch(`/orders/${created.id}`);
+  }
+  return order;
+}
+
+async function recordZincOrder(row, order) {
+  const summary = orderSummary(order);
+  if (order.status === 'order_failed') return syncOrder(row.id, 'failed', { ...summary, error: summary.error || 'Zinc could not place the order' });
+  if (order.status === 'order_placed') return syncOrder(row.id, summary.delivered ? 'delivered' : 'placed', summary);
+  // Still pending after the wait: leave it as "placing"; the next tick retries with the same idempotency key.
+}
+
+const lastPolled = new Map();
+let workerBusy = false;
+
+async function orderWorkerTick() {
+  if (workerBusy) return;
+  workerBusy = true;
+  try {
+    const rows = await stdbRows("SELECT * FROM wishlist_order WHERE status = 'pending' OR status = 'placing' OR status = 'placed'");
+    for (const row of rows) {
+      try {
+        const zincId = unwrap(row.zinc_order_id);
+        if (row.status === 'pending') await syncOrder(row.id, 'placing');
+        if (row.status === 'pending' || (row.status === 'placing' && !zincId)) {
+          await recordZincOrder(row, await placeOrder(row));
+        } else if (row.status === 'placing' || row.status === 'placed') {
+          // Young orders are checked every tick, older ones about once a minute.
+          const age = Date.now() - Number(row.created_at?.[0] ?? 0) / 1000;
+          const due = !lastPolled.has(row.id) || Date.now() - lastPolled.get(row.id) > (age < 120_000 ? 4_000 : 60_000);
+          if (!zincId || !due) continue;
+          lastPolled.set(row.id, Date.now());
+          const order = await zincFetch(`/orders/${zincId}`);
+          const summary = orderSummary(order);
+          const changed = summary.delivered || summary.tracking_number !== unwrap(row.tracking_number);
+          if (changed) await recordZincOrder(row, order);
+        }
+      } catch (error) { console.error(`Order ${row.id}:`, error.message); }
+    }
+  } catch (error) { console.error('Order worker:', error.message); }
+  finally { workerBusy = false; }
+}
+
+async function startOrderWorker() {
+  if (!ZINC_API_KEY) return console.log('Order worker disabled (no ZINC_API_KEY)');
+  try { await stdbCall('claim_order_server', []); } catch (error) { return console.error('Order worker disabled:', error.message); }
+  console.log('Order worker running');
+  setInterval(orderWorkerTick, 5000);
 }
 
 // Realized profit uses the average-cost method: a sell realizes (sell price - average cost) x quantity sold.
@@ -294,10 +381,8 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/simulate') { const { proposal, demo_price: demoPrice } = await body(request); const validated = validateProposal(proposal, Number(proposal.amount_usd), proposal.asset_type); const quote = Number(demoPrice) > 0 ? { price: Number(demoPrice), source: 'manual-demo-price' } : validated.asset_type === 'stock' ? await stockPrice(validated.symbol) : await coinbasePrice(validated.symbol); const productId = productIdFor(validated.symbol, validated.asset_type); const preview = await coinbasePreview({ productId, assetType: validated.asset_type, action: validated.action, amountUsd: validated.amount_usd, price: quote.price }); const trade = { ...validated, id: randomUUID(), price: quote.price, quantity: validated.amount_usd / quote.price, simulated: true, createdAt: new Date().toISOString(), coinbase: { product_id: productId, price_source: quote.source, preview_status: preview.status, preview_source: preview.source } }; trades.unshift(trade); return json(response, 200, { trade, preview }); }
     if (request.method === 'GET' && request.url.startsWith('/api/wishlist/search')) { const q = new URL(request.url, 'http://localhost').searchParams.get('q')?.trim(); if (!q) throw new Error('Enter something to search for'); return json(response, 200, { results: await zincSearch(q), sandbox: ZINC_API_KEY?.startsWith('zn_test_') ?? false }); }
     if (request.method === 'GET' && request.url === '/api/portfolio') return json(response, 200, await portfolio());
-    if (request.method === 'POST' && request.url === '/api/wishlist/purchase') { const { item } = await body(request); return json(response, 200, { order: await zincPurchase(item) }); }
-    if (request.method === 'GET' && request.url.startsWith('/api/wishlist/order/')) return json(response, 200, { order: orderSummary(await zincFetch(`/orders/${encodeURIComponent(request.url.split('/').pop())}`)) });
     return json(response, 404, { error: 'Not found' });
   } catch (error) { return json(response, 400, { error: error instanceof Error ? error.message : 'Unknown error' }); }
 });
 
-server.listen(PORT, () => console.log(`StockUp API listening on http://localhost:${PORT}`));
+server.listen(PORT, () => { console.log(`StockUp API listening on http://localhost:${PORT}`); void startOrderWorker(); });
