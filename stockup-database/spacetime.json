@@ -1,0 +1,8 @@
+{
+  "dev": {
+    "run": "npm run dev"
+  },
+  "database": "stockup-db",
+  "module-path": "./spacetimedb",
+  "server": "maincloud"
+}
