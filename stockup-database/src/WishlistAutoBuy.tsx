@@ -19,7 +19,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 // Watches realized paper-trading profit (closed buy -> sell round trips) and, each time it reaches the threshold, starts a purchase of the
-// oldest wishlist item. beginPurchase atomically turns that item into a pending order row; the API server's order worker then places it
+// cheapest wishlist item. beginPurchase atomically turns that item into a pending order row; the API server's order worker then places it
 // with Zinc and keeps the row updated, and the toasts below come from those row updates.
 // Rendered next to <App /> (inside the SpacetimeDB provider) so it keeps running while the wishlist modal is closed.
 export default function WishlistAutoBuy() {
@@ -43,7 +43,7 @@ export default function WishlistAutoBuy() {
   const busy = useRef(false);
   const failed = useRef(new Set<string>());
 
-  const items = rows.filter((row) => isMine(row.owner)).sort((a, b) => Number(a.id - b.id));
+  const items = rows.filter((row) => isMine(row.owner)).sort((a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id)); // cheapest first, oldest breaks ties
   const update = (next: typeof settings) => { setSettings(next); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ } };
   const toast = useCallback((tone: Toast['tone'], title: string, detail: string) => {
     const id = Date.now() + Math.random();

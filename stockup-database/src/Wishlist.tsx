@@ -13,7 +13,8 @@ export default function Wishlist({ onClose }: Props) {
   const [rows] = useTable(tables.wishlistProduct);
   const [orderRows] = useTable(tables.wishlistOrder);
   // The table is public, so only show rows this browser's identity owns.
-  const items: SavedProduct[] = rows.filter((row) => row.owner.toHexString() === identity?.toHexString());
+  // Cheapest first: that is the order auto-buy purchases them in.
+  const items: SavedProduct[] = rows.filter((row) => row.owner.toHexString() === identity?.toHexString()).sort((a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id));
   const orders = orderRows.filter((row) => row.owner.toHexString() === identity?.toHexString()).sort((a, b) => Number(b.id - a.id));
   const conn = getConnection() as DbConnection | null;
   const onAdd = (item: WishlistProduct) => {
