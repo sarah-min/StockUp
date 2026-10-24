@@ -98,6 +98,30 @@ const wishlistItem = table(
   }
 );
 
+const wishlistProduct = table(
+  {
+    name: "wishlist_product",
+    public: true,
+    indexes: [
+      {
+        accessor: "wishlist_product_by_owner",
+        algorithm: "btree",
+        columns: ["owner"],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    owner: t.identity(),
+    url: t.string(),
+    retailer: t.string(),
+    title: t.string(),
+    brand: t.option(t.string()),
+    image: t.option(t.string()),
+    priceCents: t.u64(),
+  }
+);
+
 const agentPosition = table(
   {
     name: "agent_position",
@@ -185,6 +209,7 @@ const spacetimedb = schema({
   coinbaseAccount,
   agent,
   wishlistItem,
+  wishlistProduct,
   agentPosition,
   marketPrice,
   trade,

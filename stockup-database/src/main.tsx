@@ -2,6 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
+import WishlistAutoBuy from "./WishlistAutoBuy.tsx";
+import DemoTrader from "./DemoTrader.tsx";
 import { Identity } from "spacetimedb";
 import { SpacetimeDBProvider } from "spacetimedb/react";
 import { DbConnection, ErrorContext } from "./module_bindings/index.ts";
@@ -38,6 +40,8 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <SpacetimeDBProvider connectionBuilder={connectionBuilder}>
       <App />
+      <WishlistAutoBuy />
+      <DemoTrader />
     </SpacetimeDBProvider>
   </StrictMode>,
 );

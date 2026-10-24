@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import './App.css';
+import Wishlist from './Wishlist';
 
 type AssetType = 'crypto' | 'stock';
 type Proposal = { symbol: string; asset_type: AssetType; action: 'buy' | 'sell'; amount_usd: number; confidence: number; rationale: string; risk: 'low' | 'medium' | 'high'; source: 'creao' | 'demo' };
@@ -23,6 +24,7 @@ function App() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [wishlistOpen, setWishlistOpen] = useState(false);
 
   useEffect(() => {
     request<Health>('/api/health').then(setHealth).catch(() => setHealth(null));
@@ -45,7 +47,7 @@ function App() {
   };
 
   return <main className="shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">↗</span> StockUp</div><div className="mode-pill"><span className="dot" /> SIMULATION MODE</div></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark">↗</span> StockUp</div><button className="wish-open" onClick={() => setWishlistOpen(true)}>♡ Wishlist</button><div className="mode-pill"><span className="dot" /> SIMULATION MODE</div></header>
     <section className="hero"><div><p className="eyebrow">CREAO × COINBASE FOR AGENTS</p><h1>Let an agent make the pitch.<br /><em>You make the call.</em></h1><p className="hero-copy">CREAO generates a strategy. Coinbase checks the product and market when the agent CLI is connected, then StockUp previews and records the trade without sending a live order.</p></div><div className="hero-badge">✦<span>Agent<br />trade preview</span></div></section>
     <section className="workspace">
       <div className="card setup-card"><div className="card-label">01 / SET YOUR PLAY</div><label>Asset class</label><div className="asset-toggle" role="group" aria-label="Asset class"><button className={assetType === 'crypto' ? 'selected' : ''} onClick={() => { setAssetType('crypto'); setProposal(null); setTrade(null); }}>Crypto</button><button className={assetType === 'stock' ? 'selected' : ''} onClick={() => { setAssetType('stock'); setProposal(null); setTrade(null); }}>Stocks</button></div><label htmlFor="budget">Paper budget</label><div className="budget-input"><span>$</span><input id="budget" type="number" min="1" max="10000" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p className="helper">The agent will propose a {assetType === 'crypto' ? 'Coinbase-supported crypto asset' : 'Coinbase-eligible US equity'} and never exceed this amount.</p><button className="primary" onClick={generateProposal} disabled={loading || budget <= 0}>{loading ? 'Running CREAO…' : 'Generate strategy →'}</button><div className="integration-status"><span className={health?.creaoConfigured ? 'status-dot good' : 'status-dot'} /> {health?.creaoConfigured ? 'CREAO API connected' : health?.creaoError ? 'CREAO key needs attention' : 'CREAO demo mode'}<span className="status-separator">·</span><span className="status-dot good" /> Coinbase {health?.coinbaseAgentMode === 'auto' ? 'agent path enabled' : 'public market mode'}</div></div>
@@ -54,6 +56,7 @@ function App() {
     </section>
     {error && <div className="error">{error}</div>}
     <section className="history card"><div className="card-label">RECENT PAPER TRADES</div>{trades.length === 0 ? <p className="history-empty">Your simulated trades will show up here.</p> : trades.map((item) => <div className="history-row" key={item.id}><strong>{item.symbol}</strong><span>{item.action.toUpperCase()} {money.format(item.amount_usd)}</span><span>@ {money.format(item.price)}</span><span>{new Date(item.createdAt).toLocaleTimeString()}</span></div>)}</section>
+    {wishlistOpen && <Wishlist onClose={() => setWishlistOpen(false)} />}
     <footer>StockUp is a simulation. Not investment advice. No live orders are enabled.</footer>
   </main>;
 }

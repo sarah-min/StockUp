@@ -3,11 +3,20 @@
 
 /* eslint-disable */
 /* tslint:disable */
-import { type Infer as __Infer } from 'spacetimedb';
+import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
-import SendMessageReducer from '../send_message_reducer';
-import SetNameReducer from '../set_name_reducer';
+import AddWishlistItemReducer from "../add_wishlist_item_reducer";
+import AddWishlistProductReducer from "../add_wishlist_product_reducer";
+import CreateAgentReducer from "../create_agent_reducer";
+import CreateUserReducer from "../create_user_reducer";
+import ExecuteTradeReducer from "../execute_trade_reducer";
+import RemoveWishlistProductReducer from "../remove_wishlist_product_reducer";
 
-export type SendMessageParams = __Infer<typeof SendMessageReducer>;
-export type SetNameParams = __Infer<typeof SetNameReducer>;
+export type AddWishlistItemParams = __Infer<typeof AddWishlistItemReducer>;
+export type AddWishlistProductParams = __Infer<typeof AddWishlistProductReducer>;
+export type CreateAgentParams = __Infer<typeof CreateAgentReducer>;
+export type CreateUserParams = __Infer<typeof CreateUserReducer>;
+export type ExecuteTradeParams = __Infer<typeof ExecuteTradeReducer>;
+export type RemoveWishlistProductParams = __Infer<typeof RemoveWishlistProductReducer>;
+
