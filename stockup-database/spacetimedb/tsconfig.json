@@ -15,7 +15,6 @@
     "isolatedDeclarations": false,
 
     // This library is ESM-only, do not import commonjs modules
-    "ignoreDeprecations": "6.0",
     "esModuleInterop": false,
     "allowSyntheticDefaultImports": false,
     "useDefineForClassFields": true,
@@ -25,5 +24,6 @@
     "isolatedModules": true
   },
   "include": ["src/**/*.ts", "vitest.config.ts"],
-  "exclude": ["node_modules", "**/__tests__/*", "dist/**/*"]
+  "exclude": ["node_modules", "**/__tests__/*", "dist/**/*"],
+  "types": ["node"],
 }
