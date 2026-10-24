@@ -17,6 +17,7 @@ export const Agent = __t.object("Agent", {
   apiEndpoint: __t.string(),
   balanceCents: __t.u64(),
   enabled: __t.bool(),
+  personality: __t.string(),
 });
 export type Agent = __Infer<typeof Agent>;
 

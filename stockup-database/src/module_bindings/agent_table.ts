@@ -17,4 +17,5 @@ export default __t.row({
   apiEndpoint: __t.string().name("api_endpoint"),
   balanceCents: __t.u64().name("balance_cents"),
   enabled: __t.bool(),
+  personality: __t.string(),
 });

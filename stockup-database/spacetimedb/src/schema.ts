@@ -75,6 +75,7 @@ const agent = table(
     apiEndpoint: t.string().unique(),
     balanceCents: t.u64(),
     enabled: t.bool(),
+    personality: t.string(),
   }
 );
 

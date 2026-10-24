@@ -13,5 +13,6 @@ import {
 export default {
   name: __t.string(),
   apiEndpoint: __t.string(),
+  personality: __t.string(),
   initialBalanceCents: __t.u64(),
 };
