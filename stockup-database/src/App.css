@@ -1435,3 +1435,30 @@ footer {
   color: var(--muted);
   text-align: center;
 }
+
+.wish-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wish-summary li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.wish-summary li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wish-summary strong {
+  font-variant-numeric: tabular-nums;
+}

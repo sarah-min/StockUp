@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
 import Purchases from "./Purchases";
+import { useMyUserId } from "./useMyUserId";
 import ThemeToggle from "./ThemeToggle";
 import type { Account } from "./AuthGate";
 
@@ -99,7 +100,8 @@ function App({ account }: { account?: Account }) {
   const [health, setHealth] = useState<Health | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [proposalApproved, setProposalApproved] = useState(false);
-  const [wishlist, setWishlist] = useState("");
+  const myUserId = useMyUserId();
+  const [wishlistRows] = useTable(tables.wishlistProduct);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [milestonesAccepted, setMilestonesAccepted] = useState(false);
   const [trade, setTrade] = useState<Trade | null>(null);
@@ -107,6 +109,30 @@ function App({ account }: { account?: Account }) {
   const [loading, setLoading] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
+  // What the milestone agent sees: this account's wishlist items, cheapest first, with prices.
+  const wishItems = useMemo(
+    () =>
+      wishlistRows
+        .filter((row) => row.userId === myUserId)
+        .sort(
+          (a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id),
+        ),
+    [wishlistRows, myUserId],
+  );
+  const wishlist = useMemo(() => {
+    if (wishItems.length === 0) return "";
+    const usd = (cents: bigint) => `$${(Number(cents) / 100).toFixed(2)}`;
+    const lines = wishItems.map(
+      (item, index) =>
+        `${index + 1}. ${item.title} (${item.retailer}): ${usd(item.priceCents)}`,
+    );
+    const total = wishItems.reduce((sum, item) => sum + item.priceCents, 0n);
+    return `Wishlist items with prices (shipping and taxes are not included in these prices yet):\n${lines.join("\n")}\nTotal: ${usd(total)}`;
+  }, [wishItems]);
+  // Changing the wishlist invalidates milestones that were accepted for the old one.
+  useEffect(() => {
+    setMilestonesAccepted(false);
+  }, [wishlist]);
   const [error, setError] = useState("");
   const [realizedProfit, setRealizedProfit] = useState<number | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
@@ -302,7 +328,9 @@ function App({ account }: { account?: Account }) {
       return;
     }
     if (!milestonesAccepted) {
-      setError("Generate and accept your wishlist milestones before simulating the trade");
+      setError(
+        "Generate and accept your wishlist milestones before simulating the trade",
+      );
       return;
     }
     if (selectedAgentId === null) {
@@ -356,20 +384,27 @@ function App({ account }: { account?: Account }) {
 
   const generateMilestones = async () => {
     if (!proposalApproved || !proposal || !wishlist.trim()) {
-      setError("Approve the proposal and enter a wishlist first");
+      setError("Approve the proposal and add items to your wishlist first");
       return;
     }
     setLoading(true);
     setError("");
     setMilestonesAccepted(false);
     try {
-      const result = await request<{ milestones: { milestones: Milestone[] } }>("/api/milestones", {
-        method: "POST",
-        body: JSON.stringify({ wishlist, proposal }),
-      });
+      const result = await request<{ milestones: { milestones: Milestone[] } }>(
+        "/api/milestones",
+        {
+          method: "POST",
+          body: JSON.stringify({ wishlist, proposal }),
+        },
+      );
       setMilestones(result.milestones.milestones);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not generate milestones");
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not generate milestones",
+      );
     } finally {
       setLoading(false);
     }
@@ -831,12 +866,13 @@ function App({ account }: { account?: Account }) {
                   <i style={{ width: `${confidencePct}%` }} />
                 </div>
               </div>
-              {proposal.recommendations && proposal.recommendations.length > 0 && (
-                <div className="recommendations">
-                  <span>Typical picks</span>
-                  <strong>{proposal.recommendations.join(", ")}</strong>
-                </div>
-              )}
+              {proposal.recommendations &&
+                proposal.recommendations.length > 0 && (
+                  <div className="recommendations">
+                    <span>Typical picks</span>
+                    <strong>{proposal.recommendations.join(", ")}</strong>
+                  </div>
+                )}
               <p className="rationale">“{proposal.rationale}”</p>
               <button
                 className="secondary"
@@ -846,40 +882,67 @@ function App({ account }: { account?: Account }) {
                 }}
                 disabled={loading}
               >
-                {proposalApproved ? "Proposal approved ✓" : "Approve this proposal →"}
+                {proposalApproved
+                  ? "Proposal approved ✓"
+                  : "Approve this proposal →"}
               </button>
               {proposalApproved && (
                 <div className="milestone-panel">
-                  <label htmlFor="wishlist">Wishlist / earning goals</label>
-                  <textarea
-                    id="wishlist"
-                    value={wishlist}
-                    onChange={(event) => {
-                      setWishlist(event.target.value);
-                      setMilestonesAccepted(false);
-                    }}
-                    placeholder="Example: Save for a $500 emergency fund and a new laptop."
-                    rows={3}
-                  />
+                  <span className="field-label">Your wishlist</span>
+                  {wishItems.length === 0 ? (
+                    <p className="helper">
+                      Nothing on your wishlist yet. Add the things you want to
+                      earn.
+                    </p>
+                  ) : (
+                    <ul className="wish-summary">
+                      {wishItems.map((item) => (
+                        <li key={String(item.id)}>
+                          <span>{item.title}</span>
+                          <strong>
+                            ${(Number(item.priceCents) / 100).toFixed(2)}
+                          </strong>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="helper">
+                    Prices don’t include shipping or taxes yet.
+                  </p>
+                  <button
+                    className="secondary"
+                    onClick={() => setWishlistOpen(true)}
+                  >
+                    {wishItems.length === 0
+                      ? "Add to wishlist →"
+                      : "Edit wishlist →"}
+                  </button>
                   <button
                     className="secondary"
                     onClick={generateMilestones}
                     disabled={loading || !wishlist.trim()}
                   >
-                    {loading ? "Planning milestones…" : "Suggest earning milestones →"}
+                    {loading
+                      ? "Planning milestones…"
+                      : "Suggest earning milestones →"}
                   </button>
                   {milestones.length > 0 && (
                     <div className="milestone-list">
                       <span>Review or edit the suggestions</span>
                       {milestones.map((milestone, index) => (
-                        <div className="milestone-row" key={`${milestone.name}-${index}`}>
+                        <div
+                          className="milestone-row"
+                          key={`${milestone.name}-${index}`}
+                        >
                           <input
                             aria-label={`Milestone ${index + 1} name`}
                             value={milestone.name}
                             onChange={(event) =>
                               setMilestones((current) =>
                                 current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, name: event.target.value } : item,
+                                  itemIndex === index
+                                    ? { ...item, name: event.target.value }
+                                    : item,
                                 ),
                               )
                             }
@@ -891,7 +954,9 @@ function App({ account }: { account?: Account }) {
                               setMilestonesAccepted(false);
                               setMilestones((current) =>
                                 current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, target: event.target.value } : item,
+                                  itemIndex === index
+                                    ? { ...item, target: event.target.value }
+                                    : item,
                                 ),
                               );
                             }}
@@ -906,7 +971,9 @@ function App({ account }: { account?: Account }) {
                           setError("");
                         }}
                       >
-                        {milestonesAccepted ? "Milestones accepted ✓" : "Accept milestones →"}
+                        {milestonesAccepted
+                          ? "Milestones accepted ✓"
+                          : "Accept milestones →"}
                       </button>
                     </div>
                   )}
