@@ -37,7 +37,7 @@ export default function DemoTrader() {
     <div className="autobuy-row"><span>Fill price</span><input type="number" min="0" placeholder="live" value={fillPrice} onChange={(event) => setFillPrice(event.target.value)} aria-label="Optional fill price override" /></div>
     <div className="demo-buttons"><button className="primary" disabled={busy || amount <= 0} onClick={() => trade('buy')}>Buy</button><button className="secondary" disabled={busy || amount <= 0} onClick={() => trade('sell')}>Sell</button></div>
     {message && <p className="helper">{message}</p>}
-    <div className="demo-holdings">{portfolio?.positions.length ? portfolio.positions.map((position) => <div key={position.symbol}>{position.symbol}: {position.quantity.toFixed(6)} ({money.format(position.value)})</div>) : 'No open positions'}</div>
+    <div className="demo-holdings">{portfolio?.positions?.length ? portfolio.positions.map((position) => <div key={position.symbol}>{position.symbol}: {position.quantity.toFixed(6)} ({money.format(position.value)})</div>) : 'No open positions'}</div>
     <div className="autobuy-row"><span>Realized profit</span><strong>{money.format(portfolio?.realized_profit ?? 0)}</strong></div>
   </DevPanel>;
 }
