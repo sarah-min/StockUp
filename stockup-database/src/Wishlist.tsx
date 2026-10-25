@@ -68,7 +68,7 @@ export default function Wishlist({ onClose }: Props) {
       <div>
         <div className="section-label">Results</div>
         {results.length === 0 ? <p className="history-empty">Search to find something to add.</p> : results.map((item) => <div className="wish-row" key={item.url}>
-          <div className="wish-info">{item.image ? <img src={item.image} alt="" loading="lazy" /> : <span className="wish-thumb" aria-hidden="true" />}<div><strong>{item.title}</strong><span>{item.retailer}{item.brand ? ` · ${item.brand}` : ''}{item.stars ? ` · ★${item.stars}` : ''}</span></div></div>
+          <div className="wish-info">{item.image ? <img src={item.image} alt="" loading="lazy" /> : <span className="wish-thumb" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 8l8-4 8 4v8l-8 4-8-4zM4 8l8 4m0 8v-8m8-4l-8 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" /></svg></span>}<div><strong>{item.title}</strong><span>{item.retailer}{item.brand ? ` · ${item.brand}` : ''}{item.stars ? ` · ★${item.stars}` : ''}</span></div></div>
           <span className="wish-price">{money.format(item.price_cents / 100)}</span>
           <button className={saved.has(item.url) ? 'secondary small' : 'primary small'} disabled={!isActive || saved.has(item.url)} onClick={() => onAdd(item)}>{saved.has(item.url) ? 'Added ✓' : 'Add'}</button>
         </div>)}

@@ -1171,6 +1171,11 @@ footer {
 .wish-info > div {
   min-width: 0;
 }
+.wish-thumb {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
 .wish-info img,
 .wish-thumb {
   width: 40px;
@@ -1550,4 +1555,74 @@ footer {
 }
 .wish-summary strong {
   font-variant-numeric: tabular-nums;
+}
+
+.confidence + button {
+  margin-top: 12px;
+}
+.execute-trade {
+  margin-top: 12px;
+}
+
+.wish-block {
+  display: grid;
+  gap: 8px;
+}
+.wish-block-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.wish-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wish-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-button:hover {
+  color: var(--text);
+}
+
+.milestone-fields {
+  display: grid;
+  gap: 9px;
+}
+
+.stale-note {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.milestones-toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.milestones-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

@@ -257,35 +257,55 @@ async function runCreaoForAsset(budget, assetType, investmentType = 'personality
   throw new Error('CREAO run timed out');
 }
 
+// A milestone target is dollars of realized profit. Accepts 135, "$135", "1,200.50" or "35%" (of the invested amount);
+// anything without a number in it is dropped, so the UI never shows wordy targets.
+function profitTarget(raw, invested) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const text = String(raw);
+  const match = text.replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  if (!match) return null;
+  let dollars = Number(match[0]);
+  if (text.includes('%')) dollars = (dollars / 100) * invested;
+  return dollars > 0 ? `$${Number(dollars.toFixed(2))}` : null;
+}
+
 function normalizeMilestones(value, wishlist, proposal) {
   const raw = value.milestones || value.milestone || value.thresholds || value.goals || [];
-  const conversationalReply = String(value.response || value.message || value.text || '').trim();
   const entries = Array.isArray(raw)
     ? raw
     : Object.entries(raw || {}).map(([name, target]) => ({ name, target }));
   const milestones = entries.map((item, index) => {
-    if (typeof item === 'string') return { name: item, target: '', rationale: '' };
+    if (typeof item === 'string') return { name: item, target: null, rationale: '' };
     return {
       name: String(item.name || item.title || item.goal || `Milestone ${index + 1}`),
-      target: String(item.target || item.profit_target || item.profitTarget || item.threshold || item.value || ''),
+      target: profitTarget(item.target_profit_usd ?? item.target ?? item.profit_target ?? item.profitTarget ?? item.threshold ?? item.value, proposal.amount_usd),
       rationale: String(item.rationale || item.reason || item.description || item.why || ''),
     };
   }).filter((item) => item.name && item.target);
+  if (milestones.length === 0) console.warn('Milestone agent returned nothing usable:', JSON.stringify(value).slice(0, 600));
   return {
     wishlist,
     invested_amount: proposal.amount_usd,
     recommendations: proposal.recommendations || [proposal.symbol],
-    milestones: milestones.length > 0 ? milestones : [{
-      name: 'First target',
-      target: 'Review portfolio progress',
-      rationale: conversationalReply || 'Suggested review point based on your wishlist.',
-    }],
+    milestones,
   };
 }
 
 async function runMilestones(wishlist, proposal) {
-  if (!CREAO_API_KEY) return normalizeMilestones({}, wishlist, proposal);
-  const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target":"...","rationale":"..."}]}. Include 3 milestones with concrete dollar thresholds or percentage gains, and explain that they are suggestions only, not guarantees or financial advice.`;
+  if (!CREAO_API_KEY) {
+    const base = proposal.amount_usd;
+    return normalizeMilestones({ milestones: [10, 25, 50].map((pct, index) => ({ name: `Demo milestone ${index + 1}`, target_profit_usd: (base * pct) / 100, rationale: 'Demo suggestion: add CREAO_API_KEY for milestones based on your wishlist.' })) }, wishlist, proposal);
+  }
+  // The agent occasionally answers in prose; try once more before giving up so the user never sees non-numeric targets.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await runMilestonesOnce(wishlist, proposal);
+    if (result.milestones.length > 0) return result;
+  }
+  throw new Error('The milestone agent did not return numeric profit targets. Please try again.');
+}
+
+async function runMilestonesOnce(wishlist, proposal) {
+  const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target_profit_usd":0,"rationale":"..."}]}. Include 3 milestones. target_profit_usd must be a plain number of US dollars of realized PROFIT to earn (the gain, not the total portfolio value), never words, never a percentage. State in each rationale that it is a suggestion only, not a guarantee or financial advice.`;
   const startUrl = `https://agent.creao.ai/api/v1/apps/${CREAO_MILESTONE_AGENT_ID}/runs`;
   const start = await fetch(startUrl, {
     method: 'POST',

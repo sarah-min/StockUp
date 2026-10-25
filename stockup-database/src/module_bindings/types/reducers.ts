@@ -8,6 +8,7 @@ import { type Infer as __Infer } from "spacetimedb";
 // Import all reducer arg schemas
 import AddWishlistItemReducer from "../add_wishlist_item_reducer";
 import AddWishlistProductReducer from "../add_wishlist_product_reducer";
+import BeginMilestonePurchaseReducer from "../begin_milestone_purchase_reducer";
 import BeginPurchaseReducer from "../begin_purchase_reducer";
 import ClaimOrderServerReducer from "../claim_order_server_reducer";
 import CreateAgentReducer from "../create_agent_reducer";
@@ -18,10 +19,12 @@ import LoginReducer from "../login_reducer";
 import LogoutReducer from "../logout_reducer";
 import RegisterAccountReducer from "../register_account_reducer";
 import RemoveWishlistProductReducer from "../remove_wishlist_product_reducer";
+import SaveMilestonesReducer from "../save_milestones_reducer";
 import SyncOrderReducer from "../sync_order_reducer";
 
 export type AddWishlistItemParams = __Infer<typeof AddWishlistItemReducer>;
 export type AddWishlistProductParams = __Infer<typeof AddWishlistProductReducer>;
+export type BeginMilestonePurchaseParams = __Infer<typeof BeginMilestonePurchaseReducer>;
 export type BeginPurchaseParams = __Infer<typeof BeginPurchaseReducer>;
 export type ClaimOrderServerParams = __Infer<typeof ClaimOrderServerReducer>;
 export type CreateAgentParams = __Infer<typeof CreateAgentReducer>;
@@ -32,5 +35,6 @@ export type LoginParams = __Infer<typeof LoginReducer>;
 export type LogoutParams = __Infer<typeof LogoutReducer>;
 export type RegisterAccountParams = __Infer<typeof RegisterAccountReducer>;
 export type RemoveWishlistProductParams = __Infer<typeof RemoveWishlistProductReducer>;
+export type SaveMilestonesParams = __Infer<typeof SaveMilestonesReducer>;
 export type SyncOrderParams = __Infer<typeof SyncOrderReducer>;
 

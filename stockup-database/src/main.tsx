@@ -5,6 +5,7 @@ import App from "./App.tsx";
 import { applyTheme, readTheme } from "./ThemeToggle.tsx";
 import WishlistAutoBuy from "./WishlistAutoBuy.tsx";
 import DemoTrader from "./DemoTrader.tsx";
+import { DEV_MODE } from "./devMode.ts";
 import AuthGate from "./AuthGate.tsx";
 import { Identity } from "spacetimedb";
 import { SpacetimeDBProvider } from "spacetimedb/react";
@@ -76,7 +77,7 @@ createRoot(document.getElementById("root")!).render(
             <App account={account} />
             {/* TO_REMOVE: temporary corner panels for demoing the wishlist auto-buy (see DevPanel.tsx) */}
             <div className="dev-dock">
-              <DemoTrader />
+              {DEV_MODE === 1 && <DemoTrader />}
               <WishlistAutoBuy />
             </div>
           </>

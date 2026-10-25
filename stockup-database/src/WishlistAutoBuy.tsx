@@ -27,6 +27,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 export default function WishlistAutoBuy() {
   const { isActive, getConnection } = useSpacetimeDB();
   const [rows] = useTable(tables.wishlistProduct);
+  const [milestoneRows] = useTable(tables.milestone);
   const myUserId = useMyUserId();
   const isMine = (userId: bigint) => myUserId !== undefined && userId === myUserId;
   useTable(tables.wishlistOrder, {
@@ -46,6 +47,10 @@ export default function WishlistAutoBuy() {
   const busy = useRef(false);
   const failed = useRef(new Set<string>());
 
+  // Accepted milestones drive auto-buy: each one buys the cheapest wishlist item the first time realized profit reaches it.
+  // With none accepted it falls back to the fixed threshold/step below.
+  const accepted = milestoneRows.filter((row) => isMine(row.userId) && row.accepted).sort((a, b) => Number(a.targetCents - b.targetCents) || Number(a.id - b.id));
+  const nextMilestone = accepted.find((row) => !row.reached);
   const items = rows.filter((row) => isMine(row.userId)).sort((a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id)); // cheapest first, oldest breaks ties
   const update = (next: typeof settings) => { setSettings(next); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ } };
   const toast = useCallback((tone: Toast['tone'], title: string, detail: string) => {
@@ -62,6 +67,28 @@ export default function WishlistAutoBuy() {
   }, []);
 
   useEffect(() => {
+    if (accepted.length === 0) return;
+    const milestone = nextMilestone;
+    const key = milestone ? `m${milestone.id}` : '';
+    if (!settings.enabled || !isActive || !milestone || items.length === 0 || value === null || value < Number(milestone.targetCents) / 100 || busy.current || failed.current.has(key)) return;
+    busy.current = true;
+    const conn = getConnection() as DbConnection | null;
+    const cheapest = items[0];
+    void (async () => {
+      try {
+        await conn?.reducers.beginMilestonePurchase({ milestoneId: milestone.id });
+        toast('good', `OMG! Milestone reached: ${milestone.name} (${milestone.target} profit) 🎉`, `Buying "${cheapest.title}" from your wishlist…`);
+      } catch (err) {
+        failed.current.add(key);
+        // Another tab got there first; that is exactly what the once-only guard is for.
+        if (!(err instanceof Error && /already reached|not found/i.test(err.message))) toast('bad', `Couldn't unlock "${milestone.name}"`, err instanceof Error ? err.message : 'Purchase failed');
+      } finally { busy.current = false; }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, settings.enabled, isActive, rows.length, milestoneRows]);
+
+  useEffect(() => {
+    if (accepted.length > 0) return;
     const item = items.find((entry) => !failed.current.has(String(entry.id)));
     if (!settings.enabled || !isActive || !item || value === null || value < settings.threshold || busy.current) return;
     busy.current = true;
@@ -84,7 +111,7 @@ export default function WishlistAutoBuy() {
     {/* TO_REMOVE: this panel is only a temporary control. The profit-watching effect above is the real feature, so keep or move it. */}
     <DevPanel id="autobuy" title="Wishlist auto-buy" className="autobuy">
       <div className="autobuy-row"><span>Realized profit</span><strong>{value === null ? '…' : money.format(value)}</strong></div>
-      <div className="autobuy-row"><span>Buy at</span><input type="number" min="0.01" step="0.01" value={settings.threshold} onChange={(event) => update({ ...settings, threshold: Math.max(0.01, Number(event.target.value)) })} aria-label="Auto-buy threshold in dollars" /></div>
+      {accepted.length > 0 ? <div className="autobuy-row"><span>Next milestone</span><strong>{nextMilestone ? nextMilestone.target : 'all reached'}</strong></div> : <div className="autobuy-row"><span>Buy at</span><input type="number" min="0.01" step="0.01" value={settings.threshold} onChange={(event) => update({ ...settings, threshold: Math.max(0.01, Number(event.target.value)) })} aria-label="Auto-buy threshold in dollars" /></div>}
       <label className="autobuy-row"><span>{items.length} on wishlist</span><input type="checkbox" checked={settings.enabled} onChange={(event) => update({ ...settings, enabled: event.target.checked })} /></label>
     </DevPanel>
     <div className="toasts" aria-live="polite">{toasts.map((entry) => <div key={entry.id} className={`toast toast-${entry.tone}`}><strong>{entry.title}</strong><span>{entry.detail}</span><button onClick={() => setToasts((current) => current.filter((other) => other.id !== entry.id))} aria-label="Dismiss">×</button></div>)}</div>

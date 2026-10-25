@@ -321,6 +321,38 @@ const config = table(
 );
 
 /*
+ * Earning milestones generated for a user's strategy. Each save replaces the user's previous set.
+ * Public so the browser can list them (filtered by userId, like the wishlist tables).
+ */
+const milestone = table(
+  {
+    name: "milestone",
+    public: true,
+    indexes: [
+      {
+        accessor: "milestone_by_user",
+        algorithm: "btree",
+        columns: ["userId"],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    userId: t.u64(),
+    name: t.string(),
+    target: t.string(), // as shown to the user, e.g. "$30"
+    targetCents: t.u64(), // realized profit needed, in cents
+    rationale: t.string(),
+    accepted: t.bool(),
+    createdAt: t.timestamp(),
+    // True once auto-buy has bought a wishlist item for this milestone (each milestone fires at most once).
+    reached: t.bool().default(false),
+    // Ids of the wishlist items these milestones were generated for (comma-separated); empty for older rows.
+    wishlistSnapshot: t.string().default(""),
+  }
+);
+
+/*
  * Login credentials. Private: no client can read it.
  *
  * The browser never sends the password itself, only a PBKDF2 proof derived from it
@@ -382,6 +414,7 @@ const spacetimedb = schema({
   config,
   credential,
   session,
+  milestone,
 });
 
 export default spacetimedb;

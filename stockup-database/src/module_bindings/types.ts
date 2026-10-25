@@ -57,6 +57,20 @@ export const MarketPrice = __t.object("MarketPrice", {
 });
 export type MarketPrice = __Infer<typeof MarketPrice>;
 
+export const Milestone = __t.object("Milestone", {
+  id: __t.u64(),
+  userId: __t.u64(),
+  name: __t.string(),
+  target: __t.string(),
+  targetCents: __t.u64(),
+  rationale: __t.string(),
+  accepted: __t.bool(),
+  createdAt: __t.timestamp(),
+  reached: __t.bool(),
+  wishlistSnapshot: __t.string(),
+});
+export type Milestone = __Infer<typeof Milestone>;
+
 export const OrderServer = __t.object("OrderServer", {
   id: __t.u64(),
   identity: __t.identity(),

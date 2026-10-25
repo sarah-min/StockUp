@@ -26,7 +26,7 @@ describe('StockUp paper-trading flow', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: /generate strategy/i }));
     expect(await screen.findByText('BTC-USD')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /approve this proposal/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /lock in this strategy/i })).toBeInTheDocument();
   });
 
   // The UI never selects an agent yet (setSelectedAgentId is not called anywhere), so "Simulate this trade" always
@@ -46,5 +46,13 @@ describe('StockUp paper-trading flow', () => {
     await user.click(screen.getByRole('button', { name: /purchases/i }));
     expect(screen.getByRole('dialog', { name: /purchases/i })).toBeInTheDocument();
     expect(screen.getByText(/nothing unlocked yet/i)).toBeInTheDocument();
+  });
+
+  it('opens the milestones pop-up from the header', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /milestones/i }));
+    expect(screen.getByRole('dialog', { name: /milestones/i })).toBeInTheDocument();
+    expect(screen.getByText(/no milestones yet/i)).toBeInTheDocument();
   });
 });

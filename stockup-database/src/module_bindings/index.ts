@@ -36,6 +36,7 @@ import {
 // Import all reducer arg schemas
 import AddWishlistItemReducer from "./add_wishlist_item_reducer";
 import AddWishlistProductReducer from "./add_wishlist_product_reducer";
+import BeginMilestonePurchaseReducer from "./begin_milestone_purchase_reducer";
 import BeginPurchaseReducer from "./begin_purchase_reducer";
 import ClaimOrderServerReducer from "./claim_order_server_reducer";
 import CreateAgentReducer from "./create_agent_reducer";
@@ -46,6 +47,7 @@ import LoginReducer from "./login_reducer";
 import LogoutReducer from "./logout_reducer";
 import RegisterAccountReducer from "./register_account_reducer";
 import RemoveWishlistProductReducer from "./remove_wishlist_product_reducer";
+import SaveMilestonesReducer from "./save_milestones_reducer";
 import SyncOrderReducer from "./sync_order_reducer";
 
 // Import all procedure arg schemas
@@ -54,6 +56,7 @@ import SyncOrderReducer from "./sync_order_reducer";
 import AgentRow from "./agent_table";
 import AgentPositionRow from "./agent_position_table";
 import MarketPriceRow from "./market_price_table";
+import MilestoneRow from "./milestone_table";
 import SessionRow from "./session_table";
 import SimulatedPositionRow from "./simulated_position_table";
 import SimulatedTradeRow from "./simulated_trade_table";
@@ -110,6 +113,20 @@ const tablesSchema = __schema({
       { name: 'market_price_symbol_key', constraint: 'unique', columns: ['symbol'] },
     ],
   }, MarketPriceRow),
+  milestone: __table({
+    name: 'milestone',
+    indexes: [
+      { accessor: 'id', name: 'milestone_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'milestone_by_user', name: 'milestone_user_id_idx_btree', algorithm: 'btree', columns: [
+        'userId',
+      ] },
+    ],
+    constraints: [
+      { name: 'milestone_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, MilestoneRow),
   session: __table({
     name: 'session',
     indexes: [
@@ -240,6 +257,7 @@ const tablesSchema = __schema({
 const reducersSchema = __reducers(
   __reducerSchema("add_wishlist_item", AddWishlistItemReducer),
   __reducerSchema("add_wishlist_product", AddWishlistProductReducer),
+  __reducerSchema("begin_milestone_purchase", BeginMilestonePurchaseReducer),
   __reducerSchema("begin_purchase", BeginPurchaseReducer),
   __reducerSchema("claim_order_server", ClaimOrderServerReducer),
   __reducerSchema("create_agent", CreateAgentReducer),
@@ -250,6 +268,7 @@ const reducersSchema = __reducers(
   __reducerSchema("logout", LogoutReducer),
   __reducerSchema("register_account", RegisterAccountReducer),
   __reducerSchema("remove_wishlist_product", RemoveWishlistProductReducer),
+  __reducerSchema("save_milestones", SaveMilestonesReducer),
   __reducerSchema("sync_order", SyncOrderReducer),
 );
 

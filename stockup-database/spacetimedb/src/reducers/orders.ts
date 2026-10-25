@@ -65,6 +65,66 @@ export const beginPurchase = spacetimedb.reducer(
   }
 );
 
+// Auto-buy for a milestone: marks the milestone reached and turns the user's cheapest wishlist item into a pending order,
+// all in one transaction, so a milestone can fire only once even if two tabs race. The client checks the profit
+// (it lives in the API server's trade list); this reducer guards ownership, acceptance and the once-only rule.
+export const beginMilestonePurchase = spacetimedb.reducer(
+  { milestoneId: t.u64() },
+  (ctx, { milestoneId }) => {
+    const currentUser = requireCurrentUser(ctx);
+    const milestone = ctx.db.milestone.id.find(milestoneId);
+
+    if (!milestone || milestone.userId !== currentUser.id) {
+      throw new SenderError("Milestone not found");
+    }
+
+    if (!milestone.accepted) {
+      throw new SenderError("Accept your milestones before they can unlock rewards");
+    }
+
+    if (milestone.reached) {
+      throw new SenderError("Milestone already reached");
+    }
+
+    const cheapest = Array.from(
+      ctx.db.wishlistProduct.wishlist_product_by_user.filter(currentUser.id)
+    ).sort((a, b) =>
+      a.priceCents === b.priceCents
+        ? Number(a.id - b.id)
+        : a.priceCents < b.priceCents
+          ? -1
+          : 1
+    )[0];
+
+    if (!cheapest) {
+      throw new SenderError("Your wishlist is empty");
+    }
+
+    ctx.db.milestone.id.update({ ...milestone, reached: true });
+    ctx.db.wishlistProduct.id.delete(cheapest.id);
+    ctx.db.wishlistOrder.insert({
+      id: 0n,
+      owner: ctx.sender,
+      userId: currentUser.id,
+      thresholdCents: milestone.targetCents,
+      url: cheapest.url,
+      retailer: cheapest.retailer,
+      title: cheapest.title,
+      priceCents: cheapest.priceCents,
+      status: "pending",
+      zincOrderId: undefined,
+      totalCents: undefined,
+      carrier: undefined,
+      trackingNumber: undefined,
+      trackingUrl: undefined,
+      estimatedDelivery: undefined,
+      error: undefined,
+      createdAt: ctx.timestamp,
+      updatedAt: ctx.timestamp,
+    });
+  }
+);
+
 // Called only by the order server to record progress. Delivered and failed orders are final.
 export const syncOrder = spacetimedb.reducer(
   {

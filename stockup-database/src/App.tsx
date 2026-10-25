@@ -4,6 +4,8 @@ import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
 import Purchases from "./Purchases";
+import Milestones from "./Milestones";
+import { isOutOfDate, snapshotOf } from "./wishlistSnapshot";
 import ThemeToggle from "./ThemeToggle";
 import type { Account } from "./AuthGate";
 
@@ -109,6 +111,8 @@ function App({ account }: { account?: Account }) {
   const [loading, setLoading] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
+  const [milestonesOpen, setMilestonesOpen] = useState(false);
+  const [milestonesSnapshot, setMilestonesSnapshot] = useState("");
   const [error, setError] = useState("");
   const [realizedProfit, setRealizedProfit] = useState<number | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
@@ -120,6 +124,7 @@ function App({ account }: { account?: Account }) {
   const { identity } = useSpacetimeDB();
   const createAgent = useReducer(reducers.createAgent);
   const executeSimulatedTrade = useReducer(reducers.executeSimulatedTrade);
+  const saveMilestones = useReducer(reducers.saveMilestones);
   const [agents] = useTable(tables.agent);
   const [sessions] = useTable(tables.session);
   const currentSession = sessions.find(
@@ -309,7 +314,7 @@ function App({ account }: { account?: Account }) {
       return;
     }
     if (!proposalApproved) {
-      setError("Approve the agent proposal before simulating the trade");
+      setError("Lock in the agent strategy before executing the trade");
       return;
     }
     if (!milestonesAccepted) {
@@ -378,11 +383,47 @@ function App({ account }: { account?: Account }) {
   const sliderMax = Math.max(1000, budget);
   const confidencePct = proposal ? Math.round(proposal.confidence * 100) : 0;
 
+  // Keeps the user's latest milestones in SpacetimeDB so they can be reviewed later from the Milestones pop-up.
+  const persistMilestones = async (
+    items: Milestone[],
+    accepted: boolean,
+    snapshot: string,
+  ) => {
+    try {
+      await saveMilestones({
+        names: items.map((item) => item.name),
+        targets: items.map((item) => item.target),
+        rationales: items.map((item) => item.rationale),
+        accepted,
+        wishlistSnapshot: snapshot,
+      });
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Could not save milestones",
+      );
+    }
+  };
+
+  // Accepting from the Milestones pop-up: use the freshly generated set if there is one, otherwise the saved rows.
+  const acceptSavedMilestones = (
+    rows: (Milestone & { wishlistSnapshot?: string })[],
+  ) => {
+    const items = milestones.length > 0 ? milestones : rows;
+    const snapshot =
+      milestones.length > 0
+        ? milestonesSnapshot
+        : ((rows[0] as { wishlistSnapshot?: string })?.wishlistSnapshot ?? "");
+    setMilestonesAccepted(true);
+    setError("");
+    void persistMilestones(items, true, snapshot);
+  };
+
   const generateMilestones = async () => {
     if (!proposalApproved || !proposal || !wishlistSummary) {
-      setError("Approve the proposal and add something to your Wishlist first");
+      setError("Lock in the strategy and add something to your Wishlist first");
       return;
     }
+    const snapshotNow = snapshotOf(savedWishlist);
     setLoading(true);
     setError("");
     setMilestonesAccepted(false);
@@ -398,6 +439,8 @@ function App({ account }: { account?: Account }) {
         },
       );
       setMilestones(result.milestones.milestones);
+      setMilestonesSnapshot(snapshotNow);
+      void persistMilestones(result.milestones.milestones, false, snapshotNow);
     } catch (error) {
       setError(
         error instanceof Error
@@ -461,6 +504,22 @@ function App({ account }: { account?: Account }) {
               />
             </svg>{" "}
             Purchases
+          </button>
+          <button
+            className="ghost-button"
+            onClick={() => setMilestonesOpen(true)}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                d="M5 21V4m0 0h11l-2 4 2 4H5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </svg>{" "}
+            Milestones
           </button>
           <ThemeToggle />
           {account && (
@@ -865,14 +924,6 @@ function App({ account }: { account?: Account }) {
                   <i style={{ width: `${confidencePct}%` }} />
                 </div>
               </div>
-              {proposal.recommendations &&
-                proposal.recommendations.length > 0 && (
-                  <div className="recommendations">
-                    <span>Typical picks</span>
-                    <strong>{proposal.recommendations.join(", ")}</strong>
-                  </div>
-                )}
-              <p className="rationale">“{proposal.rationale}”</p>
               <button
                 className="secondary"
                 onClick={() => {
@@ -882,30 +933,61 @@ function App({ account }: { account?: Account }) {
                 disabled={loading}
               >
                 {proposalApproved
-                  ? "Proposal approved ✓"
-                  : "Approve this proposal →"}
+                  ? "Strategy locked in ✓"
+                  : "Lock in this strategy →"}
               </button>
               {proposalApproved && (
                 <div className="milestone-panel">
                   <span className="section-label">Investment milestones</span>
-                  {wishlistSummary ? (
-                    <p className="helper">
-                      Based on your saved Wishlist: {wishlistSummary}
-                    </p>
-                  ) : (
-                    <p className="helper">
-                      Add an item to your Wishlist before generating milestones.
-                    </p>
-                  )}
-                  <p className="helper">
-                    Prices don’t include shipping or taxes yet.
-                  </p>
-                  <button
-                    className="secondary"
-                    onClick={() => setWishlistOpen(true)}
-                  >
-                    {wishlistSummary ? "Edit wishlist →" : "Add to wishlist →"}
-                  </button>
+                  <div className="wish-block">
+                    {savedWishlist.length > 0 ? (
+                      <>
+                        <div className="wish-block-head">
+                          <span className="wish-block-title">
+                            Based on your wishlist
+                          </span>
+                          <button
+                            className="link-button"
+                            onClick={() => setWishlistOpen(true)}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                        <ul className="wish-summary">
+                          {[...savedWishlist]
+                            .sort(
+                              (a, b) =>
+                                Number(a.priceCents - b.priceCents) ||
+                                Number(a.id - b.id),
+                            )
+                            .map((item) => (
+                              <li key={String(item.id)}>
+                                <span>{item.title}</span>
+                                <strong>
+                                  {money.format(Number(item.priceCents) / 100)}
+                                </strong>
+                              </li>
+                            ))}
+                        </ul>
+                        <small className="wish-note">
+                          Prices don’t include shipping or taxes yet.
+                        </small>
+                      </>
+                    ) : (
+                      <>
+                        <p className="helper">
+                          Add an item to your wishlist before generating
+                          milestones.
+                        </p>
+                        <button
+                          className="secondary"
+                          onClick={() => setWishlistOpen(true)}
+                        >
+                          Add to wishlist →
+                        </button>
+                      </>
+                    )}
+                  </div>
                   <button
                     className="secondary"
                     onClick={generateMilestones}
@@ -913,12 +995,21 @@ function App({ account }: { account?: Account }) {
                   >
                     {loading
                       ? "Planning milestones…"
-                      : "Suggest earning milestones →"}
+                      : milestones.length > 0
+                        ? "Regenerate milestones"
+                        : "Suggest earning milestones →"}
                   </button>
+                  {milestones.length > 0 &&
+                    isOutOfDate(milestonesSnapshot, savedWishlist) && (
+                      <p className="stale-note">
+                        Your wishlist changed since these were generated.
+                        Regenerate to resize them.
+                      </p>
+                    )}
                   {milestones.length > 0 && (
                     <div className="milestone-list">
                       <span className="milestone-list-heading">
-                        Review or edit the suggestions
+                        Milestones · review or edit ({milestones.length})
                       </span>
                       {milestones.map((milestone, index) => (
                         <div
@@ -927,44 +1018,49 @@ function App({ account }: { account?: Account }) {
                         >
                           <span className="milestone-number">{index + 1}</span>
                           <div className="milestone-content">
-                            <label>
-                              <span>Milestone</span>
-                              <input
-                                aria-label={`Milestone ${index + 1} name`}
-                                value={milestone.name}
-                                onChange={(event) => {
-                                  setMilestonesAccepted(false);
-                                  setMilestones((current) =>
-                                    current.map((item, itemIndex) =>
-                                      itemIndex === index
-                                        ? { ...item, name: event.target.value }
-                                        : item,
-                                    ),
-                                  );
-                                }}
-                              />
-                            </label>
-                            <label>
-                              <span>Profit target</span>
-                              <input
-                                className="milestone-target"
-                                aria-label={`Milestone ${index + 1} target`}
-                                value={milestone.target}
-                                onChange={(event) => {
-                                  setMilestonesAccepted(false);
-                                  setMilestones((current) =>
-                                    current.map((item, itemIndex) =>
-                                      itemIndex === index
-                                        ? {
-                                            ...item,
-                                            target: event.target.value,
-                                          }
-                                        : item,
-                                    ),
-                                  );
-                                }}
-                              />
-                            </label>
+                            <div className="milestone-fields">
+                              <label>
+                                <span>Milestone</span>
+                                <input
+                                  aria-label={`Milestone ${index + 1} name`}
+                                  value={milestone.name}
+                                  onChange={(event) => {
+                                    setMilestonesAccepted(false);
+                                    setMilestones((current) =>
+                                      current.map((item, itemIndex) =>
+                                        itemIndex === index
+                                          ? {
+                                              ...item,
+                                              name: event.target.value,
+                                            }
+                                          : item,
+                                      ),
+                                    );
+                                  }}
+                                />
+                              </label>
+                              <label>
+                                <span>Profit target</span>
+                                <input
+                                  className="milestone-target"
+                                  aria-label={`Milestone ${index + 1} target`}
+                                  value={milestone.target}
+                                  onChange={(event) => {
+                                    setMilestonesAccepted(false);
+                                    setMilestones((current) =>
+                                      current.map((item, itemIndex) =>
+                                        itemIndex === index
+                                          ? {
+                                              ...item,
+                                              target: event.target.value,
+                                            }
+                                          : item,
+                                      ),
+                                    );
+                                  }}
+                                />
+                              </label>
+                            </div>
                             {milestone.rationale && (
                               <small>{milestone.rationale}</small>
                             )}
@@ -976,6 +1072,11 @@ function App({ account }: { account?: Account }) {
                         onClick={() => {
                           setMilestonesAccepted(true);
                           setError("");
+                          void persistMilestones(
+                            milestones,
+                            true,
+                            milestonesSnapshot,
+                          );
                         }}
                       >
                         {milestonesAccepted
@@ -987,13 +1088,13 @@ function App({ account }: { account?: Account }) {
                 </div>
               )}
               <button
-                className="primary"
+                className="primary execute-trade"
                 onClick={simulateTrade}
                 disabled={loading || !proposalApproved}
               >
                 {loading
                   ? `Getting ${proposal.asset_type === "crypto" ? "Coinbase" : "stock"} price…`
-                  : "Simulate this trade →"}
+                  : "Execute this trade →"}
               </button>
             </div>
           )}
@@ -1065,7 +1166,7 @@ function App({ account }: { account?: Account }) {
                   setTrade(null);
                 }}
               >
-                Play another round
+                Start a new strategy
               </button>
             </div>
           )}
@@ -1133,6 +1234,18 @@ function App({ account }: { account?: Account }) {
       </section>
       {wishlistOpen && <Wishlist onClose={() => setWishlistOpen(false)} />}
       {purchasesOpen && <Purchases onClose={() => setPurchasesOpen(false)} />}
+      {milestonesOpen && (
+        <Milestones
+          onClose={() => setMilestonesOpen(false)}
+          canRegenerate={
+            proposalApproved && !!proposal && savedWishlist.length > 0
+          }
+          regenerating={loading}
+          error={error}
+          onRegenerate={generateMilestones}
+          onAccept={acceptSavedMilestones}
+        />
+      )}
       <footer>StockUp is not investment advice.</footer>
     </main>
   );
