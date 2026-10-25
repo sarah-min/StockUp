@@ -204,22 +204,17 @@ function validateProposal(value, budget, assetType = value.asset_type || 'crypto
   return proposal;
 }
 
-async function runCreao(budget) {
-  return runCreaoForAsset(budget, 'crypto');
-}
+const TRADERS = {
+  'personality-1': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
+  'agrarian-trader': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
+  'personality-2': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader' },
+  'artist-trader': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader' },
+  'personality-3': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader' },
+  'realist-trader': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader' },
+};
 
-async function runCreaoForAsset(budget, assetType, investmentType = 'personality-1') {
-  if (!CREAO_API_KEY) return { ...validateProposal({ symbol: assetType === 'stock' ? 'AAPL' : 'BTC-USD', action: 'buy', amount_usd: Math.min(25, budget), confidence: 0.62, rationale: 'Demo proposal: add CREAO_API_KEY to run the real strategy agent.', risk: 'high' }, budget, assetType), source: 'demo' };
-  const traders = {
-    'personality-1': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
-    'agrarian-trader': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
-    'personality-2': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader' },
-    'artist-trader': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader' },
-    'personality-3': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader' },
-    'realist-trader': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader' },
-  };
-  const trader = traders[investmentType] || traders['personality-1'];
-  const prompt = `For a paper-trading proposal, return exactly one JSON object listing the stocks or crypto assets that your ${trader.name} strategy typically picks. The requested asset class is ${assetType === 'stock' ? 'US stocks' : 'crypto pairs'}, and the paper budget is $${budget}. Use only ${assetType === 'stock' ? 'US tickers such as AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, NFLX, AMD, or IBM' : 'Coinbase-supported pairs such as BTC-USD, ETH-USD, SOL-USD, DOGE-USD, or XRP-USD'}. Required fields: recommended_assets (array of symbols), symbol (the first recommendation), action, amount_usd, confidence, rationale, risk. Do not place an order or use real money.`;
+// Start one CREAO trader run with this prompt and return the agent's structured result.
+async function runTraderAgent(trader, prompt) {
   const appId = trader.id;
   const startUrl = CREAO_IS_APP_KEY ? `https://agent.creao.ai/api/v1/apps/${encodeURIComponent(appId)}/runs` : CREAO_RUNS_URL;
   const startBody = CREAO_IS_APP_KEY
@@ -238,7 +233,7 @@ async function runCreaoForAsset(budget, assetType, investmentType = 'personality
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollDelay));
     pollDelay = Math.min(Math.round(pollDelay * 1.3), 5000);
-    const pollUrl = CREAO_IS_APP_KEY ? `${CREAO_RUNS_URL}/${runId}` : `${CREAO_RUNS_URL}/${runId}`;
+    const pollUrl = `${CREAO_RUNS_URL}/${runId}`;
     const response = await fetch(pollUrl, { headers: { Authorization: `Bearer ${CREAO_API_KEY}` } });
     if (response.status === 429) {
       await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -248,13 +243,104 @@ async function runCreaoForAsset(budget, assetType, investmentType = 'personality
     const result = await response.json();
     if (result.status === 'failed' || result.status === 'cancelled') throw new Error(`CREAO run ${result.status}`);
     if (result.status === 'completed' || result.status === 'succeeded' || result.status === 'success') {
-      const agentResult = await extractAgentResult(result);
-      const proposalInput = normalizeTraderResult(agentResult, budget, assetType, trader.name);
-      return { ...validateProposal(proposalInput, budget, assetType), source: 'creao', agent: trader.name };
+      return extractAgentResult(result);
     }
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
   throw new Error('CREAO run timed out');
+}
+
+async function runCreaoForAsset(budget, assetType, investmentType = 'personality-1') {
+  if (!CREAO_API_KEY) return { ...validateProposal({ symbol: assetType === 'stock' ? 'AAPL' : 'BTC-USD', action: 'buy', amount_usd: Math.min(25, budget), confidence: 0.62, rationale: 'Demo proposal: add CREAO_API_KEY to run the real strategy agent.', risk: 'high' }, budget, assetType), source: 'demo' };
+  const trader = TRADERS[investmentType] || TRADERS['personality-1'];
+  const prompt = `For a paper-trading proposal, return exactly one JSON object listing the stocks or crypto assets that your ${trader.name} strategy typically picks. The requested asset class is ${assetType === 'stock' ? 'US stocks' : 'crypto pairs'}, and the paper budget is $${budget}. Use only ${assetType === 'stock' ? 'US tickers such as AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, NFLX, AMD, or IBM' : 'Coinbase-supported pairs such as BTC-USD, ETH-USD, SOL-USD, DOGE-USD, or XRP-USD'}. Required fields: recommended_assets (array of symbols), symbol (the first recommendation), action, amount_usd, confidence, rationale, risk. Do not place an order or use real money.`;
+  const agentResult = await runTraderAgent(trader, prompt);
+  const proposalInput = normalizeTraderResult(agentResult, budget, assetType, trader.name);
+  return { ...validateProposal(proposalInput, budget, assetType), source: 'creao', agent: trader.name };
+}
+
+// ---- Per-agent advice: every agent looks at its own cash and holdings and says buy, sell or hold. ----
+
+const assetTypeOf = (symbol) => (String(symbol).includes('-') ? 'crypto' : 'stock');
+const baseSymbol = (symbol) => String(symbol || '').trim().toUpperCase().replace(/[\/_\s]+/g, '-').split('-')[0];
+const roundCents = (value) => Math.floor(value * 100) / 100;
+
+// Value each holding the agent reports at the current market price.
+async function priceHoldings(holdings) {
+  const valid = (Array.isArray(holdings) ? holdings : [])
+    .map((holding) => ({ symbol: String(holding.symbol || '').toUpperCase(), quantity: Number(holding.quantity) }))
+    .filter((holding) => holding.symbol && Number.isFinite(holding.quantity) && holding.quantity > 0);
+  return Promise.all(valid.map(async (holding) => {
+    const asset_type = assetTypeOf(holding.symbol);
+    let price = null;
+    try { price = (asset_type === 'stock' ? await stockPrice(holding.symbol) : await coinbasePrice(holding.symbol)).price; } catch { /* unpriced: it can't be sold this round */ }
+    return { ...holding, asset_type, price, value: price ? roundCents(holding.quantity * price) : 0 };
+  }));
+}
+
+const DEMO_PICKS = {
+  'personality-1': { crypto: 'ADA-USD', stock: 'AMZN', share: 0.3, risk: 'low', why: 'Slow and steady: a steady-growth asset, sized small, the way a farmer plants a field.' },
+  'personality-2': { crypto: 'SOL-USD', stock: 'NFLX', share: 0.45, risk: 'high', why: 'Momentum and culture: a bold bet on the asset with the most creative energy right now.' },
+  'personality-3': { crypto: 'BTC-USD', stock: 'MSFT', share: 0.25, risk: 'medium', why: 'Fundamentals first: the most established asset, with a measured position size.' },
+};
+
+function demoAdvice(agent, assetType, cash, holdings) {
+  const picks = DEMO_PICKS[agent.personality] || DEMO_PICKS['personality-1'];
+  const sellable = holdings.filter((holding) => holding.value >= 1);
+  if (sellable.length > 0 && (cash < 1 || Math.random() < 0.5)) {
+    // Different agents look at different holdings first, so demo sells don't all pile onto one asset.
+    const slot = (Number(String(agent.name || '').replace(/\D/g, '')) || 1) - 1;
+    const holding = sellable[slot % sellable.length];
+    return { symbol: holding.symbol, action: 'sell', amount_usd: roundCents(holding.value * 0.5), confidence: 0.58, risk: 'medium', rationale: `Demo advice: take profit on half of the ${holding.symbol} position and keep the rest working.` };
+  }
+  if (cash < 1) return { action: 'hold', rationale: 'Demo advice: no cash left and nothing worth selling yet, so sit tight this round.' };
+  return { symbol: picks[assetType], action: 'buy', amount_usd: Math.max(1, roundCents(cash * picks.share)), confidence: 0.62, risk: picks.risk, rationale: `Demo advice: ${picks.why}` };
+}
+
+function advicePrompt(trader, assetType, cash, holdings) {
+  const held = holdings.length
+    ? holdings.map((holding) => `${holding.symbol}: ${holding.quantity} units${holding.price ? `, worth about $${holding.value.toFixed(2)}` : ''}`).join('; ')
+    : 'nothing yet';
+  return `You are the ${trader.name} agent in a paper-trading game. Decide your single next move and return exactly one JSON object, with no conversational text. `
+    + `You have $${cash.toFixed(2)} of paper cash. Current holdings: ${held}. `
+    + `Either BUY a ${assetType === 'stock' ? 'US stock (AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, NFLX, AMD or IBM)' : 'Coinbase crypto pair (BTC-USD, ETH-USD, SOL-USD, DOGE-USD, XRP-USD, ADA-USD, AVAX-USD, LTC-USD or LINK-USD)'} with amount_usd at most your cash, `
+    + `or SELL part or all of one holding you own (symbol must be that holding, amount_usd at most its value), or HOLD if neither fits your strategy. `
+    + `Required fields: action ("buy", "sell" or "hold"), symbol, amount_usd, confidence (0 to 1), risk ("low", "medium" or "high"), rationale (one or two sentences in your strategy's voice), recommended_assets (array of symbols). Do not place an order or use real money.`;
+}
+
+// Turn the agent's raw answer into a safe, checked advice card.
+function finalizeAdvice(raw, { agent, assetType, cash, holdings, source, traderName }) {
+  const base = { agent_name: agent.name, agent_id: agent.id ?? null, personality: agent.personality, cash_usd: cash, source, agent: traderName };
+  const rawAction = String(raw.action || '').toLowerCase();
+  const sellish = rawAction === 'sell' || (!rawAction && /\bsell\b/i.test(String(raw.rationale || '')));
+  if (rawAction === 'hold') {
+    return { ...base, action: 'hold', symbol: '', asset_type: assetType, amount_usd: 0, confidence: Number(raw.confidence) || 0.5, risk: 'low', rationale: String(raw.rationale || 'Holding this round.'), recommendations: [] };
+  }
+  if (sellish) {
+    const wanted = baseSymbol(raw.symbol || raw.ticker || raw.asset);
+    const holding = holdings.find((entry) => baseSymbol(entry.symbol) === wanted && entry.value > 0);
+    if (holding) {
+      const requested = Number(raw.amount_usd ?? raw.amount);
+      const amount = Number.isFinite(requested) && requested > 0 ? Math.min(requested, holding.value) : roundCents(holding.value * 0.5);
+      const proposal = validateProposal({ ...raw, symbol: holding.symbol, action: 'sell', amount_usd: amount }, holding.value, holding.asset_type);
+      return { ...base, ...proposal, held_quantity: holding.quantity, held_value: holding.value, price: holding.price, sell_all: amount >= holding.value - 0.01 };
+    }
+    raw = { ...raw, action: 'buy', rationale: `${raw.rationale || ''} (The agent suggested selling ${wanted || 'an asset'} it doesn't hold, so StockUp turned it into a buy.)` };
+  }
+  if (cash < 1) {
+    return { ...base, action: 'hold', symbol: '', asset_type: assetType, amount_usd: 0, confidence: 0.5, risk: 'low', rationale: 'Out of cash for new buys this round.', recommendations: [] };
+  }
+  const normalized = normalizeTraderResult(raw, Math.min(25, cash), assetType, traderName || 'demo');
+  return { ...base, ...validateProposal({ ...normalized, action: 'buy' }, cash, assetType) };
+}
+
+async function adviseAgent(agent, assetType) {
+  const cash = Math.max(0, roundCents(Number(agent.cash_usd) || 0));
+  const holdings = await priceHoldings(agent.holdings);
+  if (!CREAO_API_KEY) return finalizeAdvice(demoAdvice(agent, assetType, cash, holdings), { agent, assetType, cash, holdings, source: 'demo' });
+  const trader = TRADERS[agent.personality] || TRADERS['personality-1'];
+  const result = await runTraderAgent(trader, advicePrompt(trader, assetType, cash, holdings));
+  return finalizeAdvice(result, { agent, assetType, cash, holdings, source: 'creao', traderName: trader.name });
 }
 
 // A milestone target is dollars of realized profit. Accepts 135, "$135", "1,200.50" or "35%" (of the invested amount);
@@ -601,7 +687,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'OPTIONS') return json(response, 204, {});
     if (request.method === 'GET' && request.url === '/api/health') { const creao = await creaoHealth(); return json(response, 200, { ok: true, mode: 'paper', creaoConfigured: creao.configured, creaoError: creao.error, coinbase: COINBASE_AGENT_MODE === 'public' ? 'public-market-api' : 'agent-cli-when-configured', coinbaseAgentMode: COINBASE_AGENT_MODE, stockQuotes: 'coinbase-equities-when-configured-with-nasdaq-fallback' }); }
     if (request.method === 'GET' && request.url === '/api/trades') return json(response, 200, { trades });
-    if (request.method === 'POST' && request.url === '/api/proposal') { const { budget = 100, assetType = 'crypto', investmentType = 'personality-1' } = await body(request); return json(response, 200, { proposal: await runCreaoForAsset(Number(budget), assetType, investmentType) }); }
+    if (request.method === 'POST' && request.url === '/api/proposal') { const { budget = 100, assetType = 'crypto', investmentType = 'personality-1', agent } = await body(request); const market = assetType === 'stock' ? 'stock' : 'crypto'; if (agent) return json(response, 200, { proposal: await adviseAgent(agent, market) }); return json(response, 200, { proposal: await runCreaoForAsset(Number(budget), market, investmentType) }); }
     if (request.method === 'POST' && request.url === '/api/milestones') { const { wishlist = '', proposal } = await body(request); if (!String(wishlist).trim() || !proposal) throw new Error('Wishlist and approved proposal are required'); return json(response, 200, { milestones: await runMilestones(String(wishlist).trim(), proposal) }); }
     if (request.method === 'POST' && request.url === '/api/simulate') { const { proposal, demo_price: demoPrice } = await body(request); const validated = validateProposal(proposal, Number(proposal.amount_usd), proposal.asset_type); const quote = Number(demoPrice) > 0 ? { price: Number(demoPrice), source: 'manual-demo-price' } : validated.asset_type === 'stock' ? await stockPrice(validated.symbol) : await coinbasePrice(validated.symbol); const productId = productIdFor(validated.symbol, validated.asset_type); const preview = await coinbasePreview({ productId, assetType: validated.asset_type, action: validated.action, amountUsd: validated.amount_usd, price: quote.price }); const trade = { ...validated, id: randomUUID(), price: quote.price, quantity: validated.amount_usd / quote.price, simulated: true, createdAt: new Date().toISOString(), coinbase: { product_id: productId, price_source: quote.source, preview_status: preview.status, preview_source: preview.source } }; trades.unshift(trade); return json(response, 200, { trade, preview }); }
     if (request.method === 'GET' && request.url.startsWith('/api/wishlist/search')) { const q = new URL(request.url, 'http://localhost').searchParams.get('q')?.trim(); if (!q) throw new Error('Enter something to search for'); return json(response, 200, { results: await zincSearch(q), sandbox: ZINC_API_KEY?.startsWith('zn_test_') ?? false }); }
