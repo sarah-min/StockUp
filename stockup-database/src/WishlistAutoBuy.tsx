@@ -3,6 +3,7 @@ import { useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { DbConnection, tables } from './module_bindings';
 import DevPanel from './DevPanel';
 import { useMyUserId } from './useMyUserId';
+import { useRealizedProfit } from './realizedProfit';
 
 type Toast = { id: number; tone: 'good' | 'bad'; title: string; detail: string };
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -11,13 +12,6 @@ const STORAGE_KEY = 'stockup.autobuy';
 function loadSettings() {
   try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || ''); if (saved.threshold > 0) return saved as { threshold: number; step: number; enabled: boolean }; } catch { /* use defaults */ }
   return { threshold: 50, step: 50, enabled: true };
-}
-
-async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Request failed');
-  return body;
 }
 
 // Watches realized paper-trading profit (closed buy -> sell round trips) and, each time it reaches the threshold, starts a purchase of the
@@ -42,7 +36,8 @@ export default function WishlistAutoBuy() {
     },
   });
   const [settings, setSettings] = useState(loadSettings);
-  const [value, setValue] = useState<number | null>(null);
+  // This player's own realized profit, from their trades in SpacetimeDB (never anyone else's).
+  const value = useRealizedProfit();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const busy = useRef(false);
   const failed = useRef(new Set<string>());
@@ -57,13 +52,6 @@ export default function WishlistAutoBuy() {
     const id = Date.now() + Math.random();
     setToasts((current) => [...current, { id, tone, title, detail }]);
     setTimeout(() => setToasts((current) => current.filter((entry) => entry.id !== id)), 15_000);
-  }, []);
-
-  useEffect(() => {
-    const load = () => api<{ realized_profit: number }>('/api/portfolio').then((result) => setValue(result.realized_profit)).catch(() => undefined);
-    void load();
-    const timer = setInterval(load, 10_000);
-    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {

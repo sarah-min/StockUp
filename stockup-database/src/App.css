@@ -1626,3 +1626,336 @@ footer {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* ---------- Agent advice board ---------- */
+.workspace {
+  grid-template-columns: minmax(300px, 1fr) minmax(0, 2.1fr);
+  grid-template-areas:
+    "setup board"
+    "setup ledger";
+}
+.setup-card {
+  grid-area: setup;
+}
+.advice-board {
+  grid-area: board;
+}
+.result-card {
+  grid-area: ledger;
+}
+.advice-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.advice-tally {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.side-hold {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.advice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+.advice-card {
+  --agent: var(--text);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
+  animation: rise 0.3s ease both;
+}
+.advice-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  border-radius: 14px 14px 0 0;
+  background: var(--agent);
+  opacity: 0.85;
+}
+.advice-card:hover {
+  border-color: var(--border-strong);
+}
+.advice-card.is-approved {
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px var(--surface-2);
+}
+.advice-card.status-filled {
+  border-color: var(--accent);
+}
+.advice-agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.advice-agent .agent-avatar {
+  background: var(--agent);
+}
+.advice-agent strong {
+  display: block;
+  font-size: 13px;
+}
+.advice-agent span:not(.agent-avatar) {
+  font-size: 12px;
+  color: var(--muted);
+}
+.advice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: reveal 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.advice-move {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.advice-symbol {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+.advice-move .badge {
+  margin-left: auto;
+}
+.advice-amount {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.8px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.advice-sell .advice-amount {
+  color: var(--danger);
+}
+.advice-buy .advice-amount {
+  color: var(--accent-text);
+}
+.advice-context {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.advice-why {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.advice-card:hover .advice-why,
+.advice-card:focus-within .advice-why {
+  -webkit-line-clamp: unset;
+}
+.advice-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+.approve-toggle {
+  color: var(--text);
+  width: 100%;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+.approve-toggle:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.approve-toggle.on {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.approve-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.advice-filled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+.advice-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+  line-height: 1.4;
+}
+.advice-thinking {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.advice-thinking .spinner {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.shimmer {
+  display: block;
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-2),
+    var(--surface-3),
+    var(--surface-2)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+.shimmer.short {
+  width: 60%;
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.advice-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.advice-summary {
+  font-size: 13px;
+  color: var(--muted);
+}
+.advice-actions .primary {
+  width: auto;
+  padding-inline: 22px;
+}
+.empty-state.compact {
+  min-height: 110px;
+}
+.empty-state.compact p {
+  margin-top: 0;
+}
+.round-fills {
+  display: grid;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.round-fill {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto auto 1.3fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.round-fill .muted {
+  color: var(--muted);
+  text-align: right;
+}
+.agent-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.roster-card .agent-top {
+  margin-bottom: 8px;
+}
+.roster-cash {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.holding-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.holding-chip {
+  display: inline-flex;
+  gap: 5px;
+  align-items: baseline;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.holding-chip b {
+  color: var(--text);
+  font-weight: 600;
+}
+.holding-chip.empty {
+  font-family: inherit;
+}
+.roster-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.table-row {
+  grid-template-columns: 0.9fr 1fr 0.7fr 0.9fr 1fr 1fr;
+}
+@media (max-width: 1080px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-areas: "setup" "board" "ledger";
+  }
+}
+@media (max-width: 760px) {
+  .round-fill {
+    grid-template-columns: 10px 1fr auto auto;
+  }
+  .round-fill > :nth-child(5),
+  .round-fill > :nth-child(6) {
+    display: none;
+  }
+  .table-row {
+    grid-template-columns: 1fr 1fr 0.8fr;
+  }
+  .table-row > :nth-child(n + 4) {
+    display: none;
+  }
+}
+
+.chip:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
