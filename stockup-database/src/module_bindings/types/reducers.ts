@@ -11,6 +11,7 @@ import AddWishlistProductReducer from "../add_wishlist_product_reducer";
 import BeginMilestonePurchaseReducer from "../begin_milestone_purchase_reducer";
 import BeginPurchaseReducer from "../begin_purchase_reducer";
 import ClaimOrderServerReducer from "../claim_order_server_reducer";
+import ClearFinishedOrdersReducer from "../clear_finished_orders_reducer";
 import CreateAgentReducer from "../create_agent_reducer";
 import CreateUserReducer from "../create_user_reducer";
 import ExecuteSimulatedTradeReducer from "../execute_simulated_trade_reducer";
@@ -27,6 +28,7 @@ export type AddWishlistProductParams = __Infer<typeof AddWishlistProductReducer>
 export type BeginMilestonePurchaseParams = __Infer<typeof BeginMilestonePurchaseReducer>;
 export type BeginPurchaseParams = __Infer<typeof BeginPurchaseReducer>;
 export type ClaimOrderServerParams = __Infer<typeof ClaimOrderServerReducer>;
+export type ClearFinishedOrdersParams = __Infer<typeof ClearFinishedOrdersReducer>;
 export type CreateAgentParams = __Infer<typeof CreateAgentReducer>;
 export type CreateUserParams = __Infer<typeof CreateUserReducer>;
 export type ExecuteSimulatedTradeParams = __Infer<typeof ExecuteSimulatedTradeReducer>;

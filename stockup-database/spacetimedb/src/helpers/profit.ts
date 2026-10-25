@@ -1,3 +1,5 @@
+import { SenderError } from "spacetimedb/server";
+
 type TradeRow = {
   id: bigint;
   side: string;
@@ -39,4 +41,35 @@ export function realizedProfitCents(ctx: any, userId: bigint): number {
     books.set(trade.symbol, book);
   }
   return Math.round(realized);
+}
+
+// The most a reward can cost, and the max_price orders are placed with: the listed price plus 15% (tax, fees and a margin)
+// plus $6 of shipping. Zinc refuses an order whose total would go over it. Keep in step with worstCaseCents in
+// src/rewardSpend.ts and the max_price in server/index.mjs.
+export function worstCaseCents(priceCents: bigint): bigint {
+  return (priceCents * 115n) / 100n + 600n;
+}
+
+// Profit already spent on rewards: the real total once Zinc reports it, otherwise the worst case, so a pending
+// order always keeps its money reserved. Failed orders cost nothing.
+export function rewardSpendCents(ctx: any, userId: bigint): bigint {
+  let spent = 0n;
+  for (const order of ctx.db.wishlistOrder.wishlist_order_by_user.filter(userId)) {
+    if (order.status === "failed") continue;
+    spent += order.totalCents ?? worstCaseCents(order.priceCents);
+  }
+  return spent;
+}
+
+// A reward is only bought when the profit still available (earned minus already spent) covers its worst-case cost,
+// so buying never leaves the player in the red.
+export function requireAffordable(ctx: any, userId: bigint, priceCents: bigint) {
+  const available = BigInt(realizedProfitCents(ctx, userId)) - rewardSpendCents(ctx, userId);
+  const needed = worstCaseCents(priceCents);
+
+  if (available < needed) {
+    throw new SenderError(
+      `Not enough profit left to cover this reward yet (up to $${(Number(needed) / 100).toFixed(2)} with shipping and taxes)`,
+    );
+  }
 }

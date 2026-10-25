@@ -391,7 +391,7 @@ async function runMilestones(wishlist, proposal) {
 }
 
 async function runMilestonesOnce(wishlist, proposal) {
-  const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target_profit_usd":0,"rationale":"..."}]}. Include 3 milestones. target_profit_usd must be a plain number of US dollars of realized PROFIT to earn (the gain, not the total portfolio value), never words, never a percentage. State in each rationale that it is a suggestion only, not a guarantee or financial advice.`;
+  const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target_profit_usd":0,"rationale":"..."}]}. Include 3 milestones. Targets are cumulative: each one is the total profit earned so far, not extra profit after the previous one. Shipping, taxes and fees are added at checkout, so a wishlist item can really cost up to about 15% more than its listed price plus $6 of shipping. Each target must cover the combined worst-case cost (listed price x 1.15 + $6 each) of the wishlist items bought up to that point, cheapest first, plus a small buffer, so the player is never out of pocket after reaching it. target_profit_usd must be a plain number of US dollars of realized PROFIT to earn (the gain, not the total portfolio value), never words, never a percentage. State in each rationale that it is a suggestion only, not a guarantee or financial advice.`;
   const startUrl = `https://agent.creao.ai/api/v1/apps/${CREAO_MILESTONE_AGENT_ID}/runs`;
   const start = await fetch(startUrl, {
     method: 'POST',
@@ -591,8 +591,8 @@ async function placeOrder(row) {
   const key = idempotencyKey(row);
   let created;
   try {
-    // Headroom over the listed price: tax and shipping are added at checkout.
-    created = await zincFetch('/orders', { method: 'POST', body: JSON.stringify({ products: [{ url: row.url, quantity: 1 }], shipping_address: ZINC_SHIPPING_ADDRESS, max_price: Math.round(Number(row.price_cents) * 2), idempotency_key: key, metadata: { stockup_order: key } }) });
+    // Headroom over the listed price (+15% and $6 shipping): tax and shipping are added at checkout. Keep in step with worstCaseCents.
+    created = await zincFetch('/orders', { method: 'POST', body: JSON.stringify({ products: [{ url: row.url, quantity: 1 }], shipping_address: ZINC_SHIPPING_ADDRESS, max_price: Math.round(Number(row.price_cents) * 1.15) + 600, idempotency_key: key, metadata: { stockup_order: key } }) });
   } catch (error) {
     if (error.code !== 'already_exists') throw error;
     // An earlier attempt already created it (e.g. we crashed before saving the result): find it instead of buying again.

@@ -2067,3 +2067,8 @@ footer {
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
+
+.purchase-sub {
+  color: var(--muted);
+  font-size: 11px;
+}

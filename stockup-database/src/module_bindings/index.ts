@@ -39,6 +39,7 @@ import AddWishlistProductReducer from "./add_wishlist_product_reducer";
 import BeginMilestonePurchaseReducer from "./begin_milestone_purchase_reducer";
 import BeginPurchaseReducer from "./begin_purchase_reducer";
 import ClaimOrderServerReducer from "./claim_order_server_reducer";
+import ClearFinishedOrdersReducer from "./clear_finished_orders_reducer";
 import CreateAgentReducer from "./create_agent_reducer";
 import CreateUserReducer from "./create_user_reducer";
 import ExecuteSimulatedTradeReducer from "./execute_simulated_trade_reducer";
@@ -260,6 +261,7 @@ const reducersSchema = __reducers(
   __reducerSchema("begin_milestone_purchase", BeginMilestonePurchaseReducer),
   __reducerSchema("begin_purchase", BeginPurchaseReducer),
   __reducerSchema("claim_order_server", ClaimOrderServerReducer),
+  __reducerSchema("clear_finished_orders", ClearFinishedOrdersReducer),
   __reducerSchema("create_agent", CreateAgentReducer),
   __reducerSchema("create_user", CreateUserReducer),
   __reducerSchema("execute_simulated_trade", ExecuteSimulatedTradeReducer),

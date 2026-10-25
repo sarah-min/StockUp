@@ -33,6 +33,7 @@ export default function Purchases({ onClose }: { onClose: () => void }) {
         </div>
         <div className="purchase-side">
           <span className="wish-price">{money.format(Number(order.totalCents ?? order.priceCents) / 100)}</span>
+          {order.totalCents !== undefined && <small className="purchase-sub">item {money.format(Number(order.priceCents) / 100)} + shipping &amp; taxes</small>}
           <span className={`badge order-${order.status}`}>{STATUS[order.status] ?? order.status}</span>
         </div>
       </div>)}

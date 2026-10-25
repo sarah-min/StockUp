@@ -21,4 +21,5 @@ export default __t.row({
   createdAt: __t.timestamp().name("created_at"),
   reached: __t.bool(),
   wishlistSnapshot: __t.string().name("wishlist_snapshot"),
+  baselineCents: __t.i64().name("baseline_cents"),
 });
