@@ -3,6 +3,7 @@ import "./App.css";
 import { useReducer, useTable } from "spacetimedb/react";
 import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
+import Purchases from "./Purchases";
 import ThemeToggle from "./ThemeToggle";
 import type { Account } from "./AuthGate";
 
@@ -94,6 +95,7 @@ function App({ account }: { account?: Account }) {
   const [dbTrades] = useTable(tables.trade);
   const [loading, setLoading] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
+  const [purchasesOpen, setPurchasesOpen] = useState(false);
   const [error, setError] = useState("");
   const [realizedProfit, setRealizedProfit] = useState<number | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
@@ -336,6 +338,22 @@ function App({ account }: { account?: Account }) {
               />
             </svg>
             Wishlist
+          </button>
+          <button
+            className="ghost-button"
+            onClick={() => setPurchasesOpen(true)}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                d="M4 11h16v9H4zM3 7.5h18V11H3zM12 7.5V20M12 7.5C10 7.5 8 6.8 8 5.4 8 4.3 9 3.8 10 4.2c1.200.5 2 1.800 2 3.300zm0 0c2 0 4-.7 4-2.100 0-1.100-1-1.600-2-1.200-1.200.5-2 1.800-2 3.300z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </svg>{" "}
+            Purchases
           </button>
           <ThemeToggle />
           {account && (
@@ -832,9 +850,7 @@ function App({ account }: { account?: Account }) {
                 <li>
                   Price source: {trade.coinbase?.price_source || "market quote"}
                 </li>
-                <li>
-                  Preview: {trade.coinbase?.preview_status || "preview"}
-                </li>
+                <li>Preview: {trade.coinbase?.preview_status || "preview"}</li>
               </ul>
               <button
                 className="secondary full"
@@ -865,9 +881,7 @@ function App({ account }: { account?: Account }) {
           <span className="count">{dbTrades.length}</span>
         </div>
         {sortedTrades.length === 0 ? (
-          <p className="history-empty">
-            Your trades will show up here.
-          </p>
+          <p className="history-empty">Your trades will show up here.</p>
         ) : (
           <div className="table">
             <div className="table-row table-head">
@@ -892,9 +906,8 @@ function App({ account }: { account?: Account }) {
         )}
       </section>
       {wishlistOpen && <Wishlist onClose={() => setWishlistOpen(false)} />}
-      <footer>
-        StockUp is not investment advice.
-      </footer>
+      {purchasesOpen && <Purchases onClose={() => setPurchasesOpen(false)} />}
+      <footer>StockUp is not investment advice.</footer>
     </main>
   );
 }

@@ -171,6 +171,8 @@ const wishlistOrder = table(
     createdAt: t.timestamp(),
     updatedAt: t.timestamp(),
     userId: t.u64().default(0n),
+    // The realized-profit target (in cents) whose crossing unlocked this purchase; 0 if unknown.
+    thresholdCents: t.u64().default(0n),
   }
 );
 

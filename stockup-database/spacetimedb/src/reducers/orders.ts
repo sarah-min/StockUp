@@ -32,8 +32,8 @@ export const claimOrderServer = spacetimedb.reducer((ctx) => {
 // Turns a wishlist item into a pending order in one transaction. The wishlist row is deleted in the same
 // transaction, so a second attempt for the same item (another tab, a retry) fails and can never buy it twice.
 export const beginPurchase = spacetimedb.reducer(
-  { productId: t.u64() },
-  (ctx, { productId }) => {
+  { productId: t.u64(), thresholdCents: t.u64() },
+  (ctx, { productId, thresholdCents }) => {
     const currentUser = requireCurrentUser(ctx);
     const item = ctx.db.wishlistProduct.id.find(productId);
 
@@ -46,6 +46,7 @@ export const beginPurchase = spacetimedb.reducer(
       id: 0n,
       owner: ctx.sender,
       userId: currentUser.id,
+      thresholdCents,
       url: item.url,
       retailer: item.retailer,
       title: item.title,

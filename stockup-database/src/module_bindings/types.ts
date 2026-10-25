@@ -126,6 +126,7 @@ export const WishlistOrder = __t.object("WishlistOrder", {
   createdAt: __t.timestamp(),
   updatedAt: __t.timestamp(),
   userId: __t.u64(),
+  thresholdCents: __t.u64(),
 });
 export type WishlistOrder = __Infer<typeof WishlistOrder>;
 

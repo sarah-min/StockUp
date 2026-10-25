@@ -68,7 +68,7 @@ export default function WishlistAutoBuy() {
     const conn = getConnection() as DbConnection | null;
     void (async () => {
       try {
-        await conn?.reducers.beginPurchase({ productId: item.id });
+        await conn?.reducers.beginPurchase({ productId: item.id, thresholdCents: BigInt(Math.round(settings.threshold * 100)) });
         toast('good', `OMG! You've made ${money.format(settings.threshold)} in profit 🎉`, `Buying "${item.title}" from your wishlist…`);
         update({ ...settings, threshold: settings.threshold + settings.step });
       } catch (err) {

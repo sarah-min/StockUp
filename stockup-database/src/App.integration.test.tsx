@@ -39,4 +39,12 @@ describe('StockUp paper-trading flow', () => {
     await user.click(screen.getByRole('button', { name: /wishlist/i }));
     expect(screen.getByRole('dialog', { name: /wishlist/i })).toBeInTheDocument();
   });
+
+  it('opens the purchases pop-up from the header', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /purchases/i }));
+    expect(screen.getByRole('dialog', { name: /purchases/i })).toBeInTheDocument();
+    expect(screen.getByText(/nothing unlocked yet/i)).toBeInTheDocument();
+  });
 });
