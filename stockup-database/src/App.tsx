@@ -33,6 +33,27 @@ type Trade = Proposal & {
     preview_source: string;
   };
 };
+// One agent's advice for this round. Agents look at their own cash and holdings, so they may buy, sell or hold.
+type Advice = Omit<Proposal, "action"> & {
+  action: "buy" | "sell" | "hold";
+  agent_name: string;
+  personality?: string;
+  cash_usd?: number;
+  held_quantity?: number;
+  held_value?: number;
+  price?: number;
+  sell_all?: boolean;
+};
+type RoundEntry = {
+  name: string;
+  personality: string;
+  color: string;
+  status: "thinking" | "ready" | "error" | "filling" | "filled";
+  approved: boolean;
+  advice?: Advice;
+  fill?: Trade;
+  error?: string;
+};
 type Health = {
   ok: boolean;
   creaoConfigured: boolean;
@@ -98,11 +119,9 @@ function App({ account }: { account?: Account }) {
   const [agentNum, setAgentNum] = useState(1);
   const [assetType, setAssetType] = useState<AssetType>("crypto");
   const [health, setHealth] = useState<Health | null>(null);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [proposalApproved, setProposalApproved] = useState(false);
+  const [round, setRound] = useState<RoundEntry[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [milestonesAccepted, setMilestonesAccepted] = useState(false);
-  const [trade, setTrade] = useState<Trade | null>(null);
   const [dbTrades] = useTable(tables.trade);
   const [simulatedTrades] = useTable(tables.simulatedTrade);
   const [wishlistItems] = useTable(tables.wishlistProduct);
@@ -132,19 +151,24 @@ function App({ account }: { account?: Account }) {
     (item) => currentSession && item.userId === currentSession.userId,
   );
   const wishlistSummary = savedWishlist
-    .map((item) => `${item.title} (${money.format(Number(item.priceCents) / 100)})`)
+    .map(
+      (item) =>
+        `${item.title} (${money.format(Number(item.priceCents) / 100)})`,
+    )
     .join(", ");
-  const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
+  const [positions] = useTable(tables.simulatedPosition);
   const [agentsCreated, setAgentsCreated] = useState(false);
-  useEffect(() => {
-    if (
-      (selectedAgentId === null ||
-        !ownedAgents.some((agent) => agent.id === selectedAgentId)) &&
-      ownedAgents.length > 0
-    ) {
-      setSelectedAgentId(ownedAgents[0].id);
-    }
-  }, [ownedAgents, selectedAgentId]);
+  const holdingsFor = (agentId: bigint) =>
+    positions
+      .filter((position) => position.agentId === agentId)
+      .map((position) => ({
+        symbol: position.symbol,
+        quantity: Number(position.quantityMicros) / QUANTITY_SCALE,
+        quantityMicros: position.quantityMicros,
+      }));
+  const agentNameById = new Map(agents.map((agent) => [agent.id, agent.name]));
+  const personalityLabel = (value?: string) =>
+    PERSONALITIES.find((option) => option.value === value)?.label ?? "Trader";
 
   async function saveAgents() {
     if (ownedAgents.length > 0) {
@@ -186,38 +210,81 @@ function App({ account }: { account?: Account }) {
     return () => clearInterval(timer);
   }, []);
 
+  function patchRound(name: string, patch: Partial<RoundEntry>) {
+    setRound((current) =>
+      current.map((entry) =>
+        entry.name === name ? { ...entry, ...patch } : entry,
+      ),
+    );
+  }
+
+  // Ask every agent for its own move at once; each card fills in as its agent answers.
   const generateProposal = async () => {
     setLoading(true);
     setError("");
-    setTrade(null);
-    setProposalApproved(false);
     setMilestones([]);
     setMilestonesAccepted(false);
 
     try {
-      if (!allocationsValid) {
-        throw new Error(allocationError);
-      }
-
-      if (!agentsCreated) {
+      const deployed = ownedAgents.length > 0;
+      if (!deployed) {
+        if (!allocationsValid) throw new Error(allocationError);
         await saveAgents();
       }
 
-      const result = await request<{ proposal: Proposal }>("/api/proposal", {
-        method: "POST",
-        body: JSON.stringify({
-          budget,
-          assetType,
-          agents: agentAllocations.map((agent, index) => ({
+      const roster = deployed
+        ? [...ownedAgents]
+            .sort((a, b) => Number(a.id - b.id))
+            .map((agent) => ({
+              id: agent.id.toString(),
+              name: agent.name,
+              personality: agent.personality,
+              cash_usd: Number(agent.balanceCents) / 100,
+              holdings: holdingsFor(agent.id).map(({ symbol, quantity }) => ({
+                symbol,
+                quantity,
+              })),
+            }))
+        : agentAllocations.map((agent, index) => ({
+            id: null,
             name: `Agent ${index + 1}`,
-            allocation: agent.allocation,
             personality: agent.personality,
-          })),
-          investmentType: agentSettings[0]?.personality,
-        }),
-      });
+            cash_usd: agent.allocation,
+            holdings: [],
+          }));
 
-      setProposal(result.proposal);
+      setRound(
+        roster.map((agent, index) => ({
+          name: agent.name,
+          personality: agent.personality,
+          color: AGENT_COLORS[index % AGENT_COLORS.length],
+          status: "thinking",
+          approved: false,
+        })),
+      );
+
+      await Promise.all(
+        roster.map(async (agent) => {
+          try {
+            const result = await request<{ proposal: Advice }>(
+              "/api/proposal",
+              {
+                method: "POST",
+                body: JSON.stringify({ assetType, agent }),
+              },
+            );
+            patchRound(agent.name, {
+              status: "ready",
+              advice: { ...result.proposal, agent_name: agent.name },
+            });
+          } catch (err) {
+            patchRound(agent.name, {
+              status: "error",
+              error: err instanceof Error ? err.message : "No advice",
+            });
+          }
+        }),
+      );
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Could not generate proposal",
@@ -296,68 +363,110 @@ function App({ account }: { account?: Account }) {
 
   function chooseAsset(next: AssetType) {
     setAssetType(next);
-    setProposal(null);
-    setTrade(null);
+    setRound([]);
   }
 
+  const approvedEntries = round.filter(
+    (entry) =>
+      entry.approved &&
+      entry.status === "ready" &&
+      entry.advice &&
+      entry.advice.action !== "hold",
+  );
+
+  function toggleApproval(name: string) {
+    setMilestonesAccepted(false);
+    setMilestones([]);
+    setRound((current) =>
+      current.map((entry) =>
+        entry.name === name ? { ...entry, approved: !entry.approved } : entry,
+      ),
+    );
+  }
+
+  // Fill every approved card, one after another, each on its own agent's account.
   const simulateTrade = async () => {
-    if (!proposal) {
-      setError("Generate an agent proposal first");
-      return;
-    }
-    if (!proposalApproved) {
-      setError("Approve the agent proposal before simulating the trade");
+    if (approvedEntries.length === 0) {
+      setError("Approve at least one agent's advice first");
       return;
     }
     if (!milestonesAccepted) {
       setError(
-        "Generate and accept your wishlist milestones before simulating the trade",
+        "Generate and accept your wishlist milestones before simulating the trades",
       );
-      return;
-    }
-    if (selectedAgentId === null) {
-      setError("Select an agent first");
       return;
     }
 
     setLoading(true);
     setError("");
 
-    try {
-      // External API obtains the quote/preview.
-      const result = await request<{ trade: Trade }>("/api/simulate", {
-        method: "POST",
-        body: JSON.stringify({ proposal }),
-      });
+    for (const entry of approvedEntries) {
+      const advice = entry.advice!;
+      const agent = ownedAgents.find((row) => row.name === entry.name);
+      if (!agent) {
+        patchRound(entry.name, {
+          status: "error",
+          error: "This agent isn't deployed yet. Try again in a moment.",
+        });
+        continue;
+      }
+      patchRound(entry.name, { status: "filling" });
+      try {
+        // External API obtains the quote/preview.
+        const result = await request<{ trade: Trade }>("/api/simulate", {
+          method: "POST",
+          body: JSON.stringify({ proposal: advice }),
+        });
 
-      // SpacetimeDB records the simulated trade and updates its fixed-point position.
-      const quantityMicros = BigInt(Math.round(result.trade.quantity * 1_000_000));
-      const priceCents = BigInt(Math.round(result.trade.price * 100));
-      const totalCents =
-        (quantityMicros * priceCents + 999_999n) / 1_000_000n;
-      await executeSimulatedTrade({
-        agentId: selectedAgentId,
-        side: result.trade.action,
-        symbol: result.trade.symbol,
-        quantityMicros,
-        priceCents,
-        totalCents,
-      });
-
-      setTrade(result.trade);
-
-      // No setTrades call is needed. The trade-table subscription updates.
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Could not simulate trade",
-      );
-    } finally {
-      setLoading(false);
+        // SpacetimeDB records the simulated trade and updates its fixed-point position.
+        let quantityMicros = BigInt(
+          Math.round(result.trade.quantity * QUANTITY_SCALE),
+        );
+        if (advice.action === "sell") {
+          // Never sell more than the agent holds (price moves and rounding can overshoot by a hair).
+          const held =
+            holdingsFor(agent.id).find((h) => h.symbol === advice.symbol)
+              ?.quantityMicros ?? 0n;
+          if (quantityMicros > held) quantityMicros = held;
+        }
+        const priceCents = BigInt(Math.round(result.trade.price * 100));
+        const totalCents =
+          (quantityMicros * priceCents + 999_999n) / 1_000_000n;
+        await executeSimulatedTrade({
+          agentId: agent.id,
+          side: result.trade.action,
+          symbol: result.trade.symbol,
+          quantityMicros,
+          priceCents,
+          totalCents,
+        });
+        patchRound(entry.name, { status: "filled", fill: result.trade });
+      } catch (err) {
+        patchRound(entry.name, {
+          status: "error",
+          error:
+            err instanceof Error ? err.message : "Could not simulate trade",
+        });
+      }
     }
+    setLoading(false);
   };
 
-  const step = trade ? 3 : proposal ? 2 : 1;
-  const steps = ["Set your play", "Agent pitch", "Ledger"];
+  const fills = round.filter((entry) => entry.status === "filled");
+  const step = fills.length > 0 ? 3 : round.length > 0 ? 2 : 1;
+  const steps = ["Set your play", "Agent advice", "Ledger"];
+  const thinking = round.some((entry) => entry.status === "thinking");
+  const readyAdvice = round.filter((entry) => entry.advice);
+  const buyCount = readyAdvice.filter((e) => e.advice!.action === "buy").length;
+  const sellCount = readyAdvice.filter(
+    (e) => e.advice!.action === "sell",
+  ).length;
+  const approvedBuyUsd = approvedEntries
+    .filter((e) => e.advice!.action === "buy")
+    .reduce((sum, e) => sum + e.advice!.amount_usd, 0);
+  const approvedSellUsd = approvedEntries
+    .filter((e) => e.advice!.action === "sell")
+    .reduce((sum, e) => sum + e.advice!.amount_usd, 0);
   const sortedTrades = [...dbTrades].sort(
     (a, b) =>
       Number(b.executedAt.microsSinceUnixEpoch) -
@@ -372,21 +481,31 @@ function App({ account }: { account?: Account }) {
       Number(a.executedAt.microsSinceUnixEpoch),
   );
   const sliderMax = Math.max(1000, budget);
-  const confidencePct = proposal ? Math.round(proposal.confidence * 100) : 0;
 
   const generateMilestones = async () => {
-    if (!proposalApproved || !proposal || !wishlistSummary) {
-      setError("Approve the proposal and add something to your Wishlist first");
+    if (approvedEntries.length === 0 || !wishlistSummary) {
+      setError("Approve some advice and add something to your Wishlist first");
       return;
     }
+    // The milestone agent plans around the whole approved round.
+    const symbols = [...new Set(approvedEntries.map((e) => e.advice!.symbol))];
+    const proposal = {
+      ...approvedEntries[0].advice!,
+      symbol: symbols[0],
+      amount_usd: Math.round(approvedBuyUsd * 100) / 100,
+      recommendations: symbols,
+    };
     setLoading(true);
     setError("");
     setMilestonesAccepted(false);
     try {
-      const result = await request<{ milestones: { milestones: Milestone[] } }>("/api/milestones", {
-        method: "POST",
-        body: JSON.stringify({ wishlist: wishlistSummary, proposal }),
-      });
+      const result = await request<{ milestones: { milestones: Milestone[] } }>(
+        "/api/milestones",
+        {
+          method: "POST",
+          body: JSON.stringify({ wishlist: wishlistSummary, proposal }),
+        },
+      );
       setMilestones(result.milestones.milestones);
     } catch (error) {
       setError(
@@ -471,7 +590,7 @@ function App({ account }: { account?: Account }) {
             Let an agent make the pitch. <span>You make the call.</span>
           </h1>
           <p className="intro-copy">
-            Set a budget, deploy your agents and review their trade.
+            Set a budget, deploy your agents and compare their advice.
           </p>
         </div>
         <dl className="scoreboard">
@@ -491,7 +610,7 @@ function App({ account }: { account?: Account }) {
           </div>
           <div>
             <dt>Trades</dt>
-            <dd>{dbTrades.length}</dd>
+            <dd>{dbTrades.length + visibleSimulatedTrades.length}</dd>
           </div>
           <div>
             <dt>Agents live</dt>
@@ -571,216 +690,287 @@ function App({ account }: { account?: Account }) {
             </div>
           </div>
 
-          <div className="field">
-            <label className="field-label" htmlFor="budget">
-              Budget
-            </label>
-            <div className="amount-input">
-              <span>$</span>
-              <input
-                id="budget"
-                type="number"
-                min="5"
-                max="10000"
-                value={budget}
-                onChange={(event) => changeBudget(Number(event.target.value))}
-              />
+          {ownedAgents.length > 0 ? (
+            <div className="field">
+              <span className="field-label">Your agents</span>
+              <div className="agent-list">
+                {[...ownedAgents]
+                  .sort((x, y) => Number(x.id - y.id))
+                  .map((agent, index) => {
+                    const holdings = holdingsFor(agent.id);
+                    return (
+                      <div
+                        className="agent-card roster-card"
+                        key={agent.id.toString()}
+                      >
+                        <div className="agent-top">
+                          <span
+                            className="agent-avatar"
+                            style={{
+                              background:
+                                AGENT_COLORS[index % AGENT_COLORS.length],
+                            }}
+                            aria-hidden="true"
+                          >
+                            {index + 1}
+                          </span>
+                          <div className="agent-name">
+                            {agent.name}
+                            <em> · {personalityLabel(agent.personality)}</em>
+                          </div>
+                          <strong className="roster-cash">
+                            {money.format(Number(agent.balanceCents) / 100)}
+                          </strong>
+                        </div>
+                        <div className="holding-chips">
+                          {holdings.length === 0 ? (
+                            <span className="holding-chip empty">
+                              No holdings yet
+                            </span>
+                          ) : (
+                            holdings.map((holding) => (
+                              <span
+                                className="holding-chip"
+                                key={holding.symbol}
+                              >
+                                {holding.symbol}{" "}
+                                <b>{holding.quantity.toFixed(4)}</b>
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+              <p className="helper roster-note">
+                Cash shown on the right. Agents can sell what they hold.
+              </p>
             </div>
-            <input
-              className="range"
-              type="range"
-              min="5"
-              max={sliderMax}
-              step="5"
-              value={budget}
-              aria-label="Budget slider"
-              onChange={(event) => changeBudget(Number(event.target.value))}
-              style={
-                {
-                  "--fill": `${(Math.min(budget, sliderMax) / sliderMax) * 100}%`,
-                } as React.CSSProperties
-              }
-            />
-            <div className="chips">
-              {BUDGET_PRESETS.map((preset) => (
-                <button
-                  key={preset}
-                  className={`chip ${budget === preset ? "selected" : ""}`}
-                  onClick={() => changeBudget(preset)}
-                >
-                  ${preset.toLocaleString()}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="field">
-            <div className="field-row">
-              <label className="field-label" htmlFor="agent_num">
-                Agents
-              </label>
-              <div className="stepper-input">
-                <button
-                  aria-label="Remove an agent"
-                  disabled={agentNum <= 1}
-                  onClick={() => changeAgentCount(agentNum - 1)}
-                >
-                  −
-                </button>
+          ) : (
+            <>
+              <div className="field">
+                <label className="field-label" htmlFor="budget">
+                  Budget
+                </label>
+                <div className="amount-input">
+                  <span>$</span>
+                  <input
+                    id="budget"
+                    type="number"
+                    min="5"
+                    max="10000"
+                    value={budget}
+                    onChange={(event) =>
+                      changeBudget(Number(event.target.value))
+                    }
+                  />
+                </div>
                 <input
-                  id="agent_num"
-                  type="number"
-                  min="1"
-                  max={MAX_AGENTS}
-                  value={agentNum}
-                  onChange={(event) =>
-                    changeAgentCount(Number(event.target.value) || 1)
+                  className="range"
+                  type="range"
+                  min="5"
+                  max={sliderMax}
+                  step="5"
+                  value={budget}
+                  aria-label="Budget slider"
+                  onChange={(event) => changeBudget(Number(event.target.value))}
+                  style={
+                    {
+                      "--fill": `${(Math.min(budget, sliderMax) / sliderMax) * 100}%`,
+                    } as React.CSSProperties
                   }
                 />
-                <button
-                  aria-label="Add an agent"
-                  disabled={agentNum >= MAX_AGENTS}
-                  onClick={() => changeAgentCount(agentNum + 1)}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            <div className="split-bar" aria-hidden="true">
-              {agentAllocations.map((agent, index) => (
-                <i
-                  key={index}
-                  style={{
-                    flexGrow: Math.max(agent.allocation, 0),
-                    background: AGENT_COLORS[index % AGENT_COLORS.length],
-                  }}
-                />
-              ))}
-            </div>
-
-            <div className="agent-list">
-              {agentAllocations.map((agent, index) => {
-                const isRest =
-                  index === lastAgentIndex && agentAllocations.length > 1;
-                const color = AGENT_COLORS[index % AGENT_COLORS.length];
-                const short = agent.allocation < MIN_AGENT_ALLOCATION;
-                return (
-                  <div
-                    className={`agent-card ${short ? "is-short" : ""}`}
-                    key={index}
-                  >
-                    <div className="agent-top">
-                      <span
-                        className="agent-avatar"
-                        style={{ background: color }}
-                        aria-hidden="true"
-                      >
-                        {index + 1}
-                      </span>
-                      <label
-                        className="agent-name"
-                        htmlFor={`agent-${index}-allocation`}
-                      >
-                        Agent {index + 1}
-                        {isRest && <em> · gets the rest</em>}
-                      </label>
-                      <div className="agent-amount">
-                        <span>$</span>
-                        <input
-                          id={`agent-${index}-allocation`}
-                          type="number"
-                          min="0"
-                          max={budget}
-                          step="1"
-                          readOnly={isRest}
-                          value={agent.allocation === 0 ? "" : agent.allocation}
-                          onChange={(event) =>
-                            updateAgentAllocation(
-                              index,
-                              Number(event.target.value),
-                            )
-                          }
-                        />
-                      </div>
-                    </div>
-                    {!isRest && agentAllocations.length > 1 && (
-                      <input
-                        className="range range-sm"
-                        type="range"
-                        min="0"
-                        max={Math.max(budget, 1)}
-                        step="1"
-                        value={Math.min(agent.allocation, budget)}
-                        aria-label={`Agent ${index + 1} allocation slider`}
-                        onChange={(event) =>
-                          updateAgentAllocation(
-                            index,
-                            Number(event.target.value),
-                          )
-                        }
-                        style={
-                          {
-                            "--fill": `${(Math.min(agent.allocation, budget) / Math.max(budget, 1)) * 100}%`,
-                            "--thumb": color,
-                          } as React.CSSProperties
-                        }
-                      />
-                    )}
-                    <div
-                      className="personality"
-                      role="radiogroup"
-                      aria-label={`Agent ${index + 1} investment type`}
+                <div className="chips">
+                  {BUDGET_PRESETS.map((preset) => (
+                    <button
+                      key={preset}
+                      className={`chip ${budget === preset ? "selected" : ""}`}
+                      onClick={() => changeBudget(preset)}
                     >
-                      {PERSONALITIES.map((option) => (
-                        <button
-                          key={option.value}
-                          role="radio"
-                          aria-checked={agent.personality === option.value}
-                          aria-label={option.label}
-                          title={option.label}
-                          className={
-                            agent.personality === option.value ? "selected" : ""
-                          }
-                          onClick={() =>
-                            updateAgentPersonality(index, option.value)
-                          }
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                      ${preset.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-            {!allocationsValid && (
-              <p className="inline-error" role="alert">
-                {allocationError}
-              </p>
-            )}
-          </div>
+              <div className="field">
+                <div className="field-row">
+                  <label className="field-label" htmlFor="agent_num">
+                    Agents
+                  </label>
+                  <div className="stepper-input">
+                    <button
+                      aria-label="Remove an agent"
+                      disabled={agentNum <= 1}
+                      onClick={() => changeAgentCount(agentNum - 1)}
+                    >
+                      −
+                    </button>
+                    <input
+                      id="agent_num"
+                      type="number"
+                      min="1"
+                      max={MAX_AGENTS}
+                      value={agentNum}
+                      onChange={(event) =>
+                        changeAgentCount(Number(event.target.value) || 1)
+                      }
+                    />
+                    <button
+                      aria-label="Add an agent"
+                      disabled={agentNum >= MAX_AGENTS}
+                      onClick={() => changeAgentCount(agentNum + 1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="split-bar" aria-hidden="true">
+                  {agentAllocations.map((agent, index) => (
+                    <i
+                      key={index}
+                      style={{
+                        flexGrow: Math.max(agent.allocation, 0),
+                        background: AGENT_COLORS[index % AGENT_COLORS.length],
+                      }}
+                    />
+                  ))}
+                </div>
+
+                <div className="agent-list">
+                  {agentAllocations.map((agent, index) => {
+                    const isRest =
+                      index === lastAgentIndex && agentAllocations.length > 1;
+                    const color = AGENT_COLORS[index % AGENT_COLORS.length];
+                    const short = agent.allocation < MIN_AGENT_ALLOCATION;
+                    return (
+                      <div
+                        className={`agent-card ${short ? "is-short" : ""}`}
+                        key={index}
+                      >
+                        <div className="agent-top">
+                          <span
+                            className="agent-avatar"
+                            style={{ background: color }}
+                            aria-hidden="true"
+                          >
+                            {index + 1}
+                          </span>
+                          <label
+                            className="agent-name"
+                            htmlFor={`agent-${index}-allocation`}
+                          >
+                            Agent {index + 1}
+                            {isRest && <em> · gets the rest</em>}
+                          </label>
+                          <div className="agent-amount">
+                            <span>$</span>
+                            <input
+                              id={`agent-${index}-allocation`}
+                              type="number"
+                              min="0"
+                              max={budget}
+                              step="1"
+                              readOnly={isRest}
+                              value={
+                                agent.allocation === 0 ? "" : agent.allocation
+                              }
+                              onChange={(event) =>
+                                updateAgentAllocation(
+                                  index,
+                                  Number(event.target.value),
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                        {!isRest && agentAllocations.length > 1 && (
+                          <input
+                            className="range range-sm"
+                            type="range"
+                            min="0"
+                            max={Math.max(budget, 1)}
+                            step="1"
+                            value={Math.min(agent.allocation, budget)}
+                            aria-label={`Agent ${index + 1} allocation slider`}
+                            onChange={(event) =>
+                              updateAgentAllocation(
+                                index,
+                                Number(event.target.value),
+                              )
+                            }
+                            style={
+                              {
+                                "--fill": `${(Math.min(agent.allocation, budget) / Math.max(budget, 1)) * 100}%`,
+                                "--thumb": color,
+                              } as React.CSSProperties
+                            }
+                          />
+                        )}
+                        <div
+                          className="personality"
+                          role="radiogroup"
+                          aria-label={`Agent ${index + 1} investment type`}
+                        >
+                          {PERSONALITIES.map((option) => (
+                            <button
+                              key={option.value}
+                              role="radio"
+                              aria-checked={agent.personality === option.value}
+                              aria-label={option.label}
+                              title={option.label}
+                              className={
+                                agent.personality === option.value
+                                  ? "selected"
+                                  : ""
+                              }
+                              onClick={() =>
+                                updateAgentPersonality(index, option.value)
+                              }
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {!allocationsValid && (
+                  <p className="inline-error" role="alert">
+                    {allocationError}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
 
           <p className="helper">
-            Agents propose a{" "}
-            {assetType === "crypto"
-              ? "Coinbase-supported crypto asset"
-              : "Coinbase-eligible US equity"}{" "}
-            and never exceed your budget.
+            Each agent picks its own{" "}
+            {assetType === "crypto" ? "crypto asset" : "US stock"} to buy, or
+            sells something it already holds.
           </p>
           <button
             className="primary"
             onClick={generateProposal}
-            disabled={loading || budget <= 0 || !allocationsValid}
+            disabled={
+              loading ||
+              (ownedAgents.length === 0 && (budget <= 0 || !allocationsValid))
+            }
           >
-            {loading && !proposal ? (
+            {thinking ? (
               <>
-                <Spinner /> Running CREAO…
+                <Spinner /> Agents are thinking…
               </>
             ) : (
               <>
-                {proposal ? "Generate a new strategy" : "Generate strategy"} →
+                {round.length > 0
+                  ? "Generate a new strategy"
+                  : "Generate strategy"}{" "}
+                →
               </>
             )}
           </button>
@@ -807,75 +997,164 @@ function App({ account }: { account?: Account }) {
           </div>
         </div>
 
-        <div className={`card proposal-card ${step === 2 ? "is-active" : ""}`}>
-          <div className="card-head">
-            <span className="card-kicker">Step 2</span>
-            <h2>Agent pitch</h2>
+        <div className={`card advice-board ${step === 2 ? "is-active" : ""}`}>
+          <div className="card-head advice-head">
+            <div>
+              <span className="card-kicker">Step 2</span>
+              <h2>Agent advice</h2>
+            </div>
+            {readyAdvice.length > 0 && (
+              <div className="advice-tally" aria-label="Advice summary">
+                <span className="side side-buy">{buyCount} buy</span>
+                <span className="side side-sell">{sellCount} sell</span>
+                {readyAdvice.length - buyCount - sellCount > 0 && (
+                  <span className="side side-hold">
+                    {readyAdvice.length - buyCount - sellCount} hold
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-          {!proposal ? (
+          {round.length === 0 ? (
             <div className="empty-state">
               <div className="empty-art" aria-hidden="true">
                 <span />
                 <span />
                 <span />
               </div>
-              <p>Your agent’s next move appears here.</p>
-              <span>Set your play, then generate a strategy.</span>
+              <p>Each agent’s next move appears here.</p>
+              <span>
+                Every agent follows its own strategy, so expect different picks.
+              </span>
             </div>
           ) : (
-            <div
-              className="reveal"
-              key={`${proposal.symbol}-${proposal.amount_usd}-${proposal.confidence}`}
-            >
-              <div className="proposal-heading">
-                <div>
-                  <span className="asset-symbol">{proposal.symbol}</span>
-                  <span className="asset-type">
-                    {proposal.asset_type === "crypto"
-                      ? "Crypto · spot"
-                      : "US equity · stock"}
-                  </span>
-                </div>
-                <span className={`badge risk-${proposal.risk}`}>
-                  {proposal.risk} risk
-                </span>
+            <>
+              <div className="advice-grid">
+                {round.map((entry) => {
+                  const advice = entry.advice;
+                  const pct = advice ? Math.round(advice.confidence * 100) : 0;
+                  const canApprove =
+                    entry.status === "ready" &&
+                    !!advice &&
+                    advice.action !== "hold";
+                  return (
+                    <article
+                      key={entry.name}
+                      className={`advice-card advice-${advice?.action ?? entry.status} ${entry.approved ? "is-approved" : ""} status-${entry.status}`}
+                      style={{ "--agent": entry.color } as React.CSSProperties}
+                    >
+                      <header className="advice-agent">
+                        <span className="agent-avatar" aria-hidden="true">
+                          {entry.name.replace(/\D/g, "") || entry.name[0]}
+                        </span>
+                        <div>
+                          <strong>{entry.name}</strong>
+                          <span>{personalityLabel(entry.personality)}</span>
+                        </div>
+                      </header>
+
+                      {entry.status === "thinking" && (
+                        <div className="advice-thinking" role="status">
+                          <span className="spinner" aria-hidden="true" />
+                          Studying the market…
+                          <i className="shimmer" />
+                          <i className="shimmer short" />
+                        </div>
+                      )}
+
+                      {entry.status === "error" && !advice && (
+                        <p className="advice-error">{entry.error}</p>
+                      )}
+
+                      {advice && advice.action === "hold" && (
+                        <div className="advice-body">
+                          <div className="advice-move">
+                            <span className="side side-hold">hold</span>
+                          </div>
+                          <p className="advice-why">{advice.rationale}</p>
+                        </div>
+                      )}
+
+                      {advice && advice.action !== "hold" && (
+                        <div className="advice-body">
+                          <div className="advice-move">
+                            <span className={`side side-${advice.action}`}>
+                              {advice.action}
+                            </span>
+                            <strong className="advice-symbol">
+                              {advice.symbol}
+                            </strong>
+                            <span className={`badge risk-${advice.risk}`}>
+                              {advice.risk}
+                            </span>
+                          </div>
+                          <div className="advice-amount">
+                            {money.format(advice.amount_usd)}
+                          </div>
+                          <p className="advice-context">
+                            {advice.action === "sell" ? (
+                              <>
+                                {advice.sell_all
+                                  ? "Sells all of"
+                                  : "Sells part of"}{" "}
+                                {advice.held_quantity?.toFixed(6)}{" "}
+                                {advice.symbol}
+                                {advice.held_value
+                                  ? ` (worth ${money.format(advice.held_value)})`
+                                  : ""}
+                              </>
+                            ) : (
+                              <>
+                                Uses{" "}
+                                {advice.cash_usd
+                                  ? `${Math.round((advice.amount_usd / advice.cash_usd) * 100)}% of ${money.format(advice.cash_usd)} cash`
+                                  : "its cash"}
+                              </>
+                            )}
+                          </p>
+                          <div className="confidence">
+                            <div className="confidence-head">
+                              <span>Confidence</span>
+                              <strong>{pct}%</strong>
+                            </div>
+                            <div className="meter">
+                              <i style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                          <p className="advice-why">{advice.rationale}</p>
+                        </div>
+                      )}
+
+                      <footer className="advice-foot">
+                        {entry.status === "filled" && entry.fill ? (
+                          <span className="advice-filled">
+                            ✓ Filled {entry.fill.quantity.toFixed(6)} @{" "}
+                            {money.format(entry.fill.price)}
+                          </span>
+                        ) : entry.status === "filling" ? (
+                          <span className="advice-filled">
+                            <span className="spinner" aria-hidden="true" />{" "}
+                            Filling…
+                          </span>
+                        ) : entry.status === "error" && advice ? (
+                          <span className="advice-error">{entry.error}</span>
+                        ) : canApprove ? (
+                          <button
+                            className={`approve-toggle ${entry.approved ? "on" : ""}`}
+                            aria-pressed={entry.approved}
+                            onClick={() => toggleApproval(entry.name)}
+                            disabled={loading && !thinking}
+                          >
+                            {entry.approved ? "✓ Approved" : "Approve"}
+                          </button>
+                        ) : null}
+                      </footer>
+                    </article>
+                  );
+                })}
               </div>
-              <div className="proposal-number">
-                <span className={`side side-${proposal.action}`}>
-                  {proposal.action}
-                </span>
-                <strong>{money.format(proposal.amount_usd)}</strong>
-              </div>
-              <div className="confidence">
-                <div className="confidence-head">
-                  <span>Confidence</span>
-                  <strong>{confidencePct}%</strong>
-                </div>
-                <div className="meter">
-                  <i style={{ width: `${confidencePct}%` }} />
-                </div>
-              </div>
-              {proposal.recommendations &&
-                proposal.recommendations.length > 0 && (
-                  <div className="recommendations">
-                    <span>Typical picks</span>
-                    <strong>{proposal.recommendations.join(", ")}</strong>
-                  </div>
-                )}
-              <p className="rationale">“{proposal.rationale}”</p>
-              <button
-                className="secondary"
-                onClick={() => {
-                  setProposalApproved(true);
-                  setError("");
-                }}
-                disabled={loading}
-              >
-                {proposalApproved
-                  ? "Proposal approved ✓"
-                  : "Approve this proposal →"}
-              </button>
-              {proposalApproved && (
+
+              {approvedEntries.length > 0 && (
                 <div className="milestone-panel">
                   <span className="section-label">Investment milestones</span>
                   {wishlistSummary ? (
@@ -902,7 +1181,10 @@ function App({ account }: { account?: Account }) {
                         Review or edit the suggestions
                       </span>
                       {milestones.map((milestone, index) => (
-                        <div className="milestone-row" key={`${milestone.name}-${index}`}>
+                        <div
+                          className="milestone-row"
+                          key={`${milestone.name}-${index}`}
+                        >
                           <span className="milestone-number">{index + 1}</span>
                           <div className="milestone-content">
                             <label>
@@ -914,7 +1196,9 @@ function App({ account }: { account?: Account }) {
                                   setMilestonesAccepted(false);
                                   setMilestones((current) =>
                                     current.map((item, itemIndex) =>
-                                      itemIndex === index ? { ...item, name: event.target.value } : item,
+                                      itemIndex === index
+                                        ? { ...item, name: event.target.value }
+                                        : item,
                                     ),
                                   );
                                 }}
@@ -930,13 +1214,20 @@ function App({ account }: { account?: Account }) {
                                   setMilestonesAccepted(false);
                                   setMilestones((current) =>
                                     current.map((item, itemIndex) =>
-                                      itemIndex === index ? { ...item, target: event.target.value } : item,
+                                      itemIndex === index
+                                        ? {
+                                            ...item,
+                                            target: event.target.value,
+                                          }
+                                        : item,
                                     ),
                                   );
                                 }}
                               />
                             </label>
-                            {milestone.rationale && <small>{milestone.rationale}</small>}
+                            {milestone.rationale && (
+                              <small>{milestone.rationale}</small>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -955,16 +1246,26 @@ function App({ account }: { account?: Account }) {
                   )}
                 </div>
               )}
-              <button
-                className="primary"
-                onClick={simulateTrade}
-                disabled={loading || !proposalApproved}
-              >
-                {loading
-                  ? `Getting ${proposal.asset_type === "crypto" ? "Coinbase" : "stock"} price…`
-                  : "Simulate this trade →"}
-              </button>
-            </div>
+
+              <div className="advice-actions">
+                <span className="advice-summary">
+                  {approvedEntries.length === 0
+                    ? "Approve the moves you agree with."
+                    : `${approvedEntries.length} approved · ${money.format(approvedBuyUsd)} to buy${approvedSellUsd > 0 ? ` · ${money.format(approvedSellUsd)} to sell` : ""}`}
+                </span>
+                <button
+                  className="primary"
+                  onClick={simulateTrade}
+                  disabled={loading || approvedEntries.length === 0}
+                >
+                  {loading && round.some((e) => e.status === "filling")
+                    ? "Filling trades…"
+                    : approvedEntries.length > 1
+                      ? `Simulate ${approvedEntries.length} trades →`
+                      : "Simulate this trade →"}
+                </button>
+              </div>
+            </>
           )}
         </div>
 
@@ -973,15 +1274,10 @@ function App({ account }: { account?: Account }) {
             <span className="card-kicker">Step 3</span>
             <h2>Ledger</h2>
           </div>
-          {!trade ? (
-            <div className="empty-state">
-              <div className="empty-art empty-art-ledger" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-              <p>No position yet.</p>
-              <span>Nothing touches your Coinbase account.</span>
+          {fills.length === 0 ? (
+            <div className="empty-state compact">
+              <p>No fills this round yet.</p>
+              <span>Approved trades are filled at the live market price.</span>
             </div>
           ) : (
             <div className="reveal">
@@ -998,40 +1294,37 @@ function App({ account }: { account?: Account }) {
                     />
                   </svg>
                 </span>
-                Fill recorded
+                {fills.length === 1
+                  ? "1 fill recorded"
+                  : `${fills.length} fills recorded`}
               </div>
-              <div className="trade-grid">
-                <div>
-                  <span>Asset</span>
-                  <strong>{trade.symbol}</strong>
-                </div>
-                <div>
-                  <span>Fill price</span>
-                  <strong>{money.format(trade.price)}</strong>
-                </div>
-                <div>
-                  <span>Quantity</span>
-                  <strong>{trade.quantity.toFixed(6)}</strong>
-                </div>
-                <div>
-                  <span>Amount</span>
-                  <strong>{money.format(trade.amount_usd)}</strong>
-                </div>
+              <div className="round-fills">
+                {fills.map((entry) => (
+                  <div className="round-fill" key={entry.name}>
+                    <span
+                      className="agent-dot"
+                      style={{ background: entry.color }}
+                      aria-hidden="true"
+                    />
+                    <strong>{entry.name}</strong>
+                    <span className={`side side-${entry.fill!.action}`}>
+                      {entry.fill!.action}
+                    </span>
+                    <span>{entry.fill!.symbol}</span>
+                    <span>{money.format(entry.fill!.amount_usd)}</span>
+                    <span className="muted">
+                      {entry.fill!.quantity.toFixed(6)} @{" "}
+                      {money.format(entry.fill!.price)}
+                    </span>
+                  </div>
+                ))}
               </div>
-              <ul className="safe-note">
-                <li>
-                  Coinbase product: {trade.coinbase?.product_id || trade.symbol}
-                </li>
-                <li>
-                  Price source: {trade.coinbase?.price_source || "market quote"}
-                </li>
-                <li>Preview: {trade.coinbase?.preview_status || "preview"}</li>
-              </ul>
               <button
                 className="secondary full"
                 onClick={() => {
-                  setProposal(null);
-                  setTrade(null);
+                  setRound([]);
+                  setMilestones([]);
+                  setMilestonesAccepted(false);
                 }}
               >
                 Play another round
@@ -1053,13 +1346,16 @@ function App({ account }: { account?: Account }) {
       <section className="card history">
         <div className="card-head row">
           <h2>Recent trades</h2>
-          <span className="count">{sortedTrades.length + sortedSimulatedTrades.length}</span>
+          <span className="count">
+            {sortedTrades.length + sortedSimulatedTrades.length}
+          </span>
         </div>
         {sortedTrades.length === 0 && sortedSimulatedTrades.length === 0 ? (
           <p className="history-empty">Your trades will show up here.</p>
         ) : (
           <div className="table">
             <div className="table-row table-head">
+              <span>Agent</span>
               <span>Asset</span>
               <span>Side</span>
               <span>Total</span>
@@ -1068,6 +1364,7 @@ function App({ account }: { account?: Account }) {
             </div>
             {sortedTrades.map((item) => (
               <div className="table-row" key={item.id.toString()}>
+                <span>{agentNameById.get(item.agentId) ?? "—"}</span>
                 <strong>{item.symbol}</strong>
                 <span>
                   <span className={`side side-${item.side}`}>{item.side}</span>
@@ -1080,14 +1377,20 @@ function App({ account }: { account?: Account }) {
               </div>
             ))}
             {sortedSimulatedTrades.map((item) => (
-              <div className="table-row" key={`simulated-${item.id.toString()}`}>
+              <div
+                className="table-row"
+                key={`simulated-${item.id.toString()}`}
+              >
+                <span>{agentNameById.get(item.agentId) ?? "—"}</span>
                 <strong>{item.symbol}</strong>
                 <span>
                   <span className={`side side-${item.side}`}>{item.side}</span>
                 </span>
                 <span>{money.format(Number(item.totalCents) / 100)}</span>
                 <span>@ {money.format(Number(item.priceCents) / 100)}</span>
-                <span>{(Number(item.quantityMicros) / 1_000_000).toFixed(6)} units</span>
+                <span>
+                  {(Number(item.quantityMicros) / 1_000_000).toFixed(6)} units
+                </span>
               </div>
             ))}
           </div>
