@@ -96,7 +96,36 @@ describe("StockUp paper-trading flow", () => {
     );
     await user.click(screen.getAllByRole("button", { name: /^lock in$/i })[1]);
     expect(
-      screen.getByText(/1 locked in · \$0\.00 to buy · \$40\.00 to sell/i),
+      screen.getByText(
+        /1 of 2 locked in · \$0\.00 to buy · \$40\.00 to sell · the rest are skipped/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("can execute the locked-in trades while other agents are still thinking", async () => {
+    // Agent 2 never answers in this test, like a slow CREAO run.
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const { agent } = JSON.parse(String(init?.body ?? "{}"));
+      if (String(input).endsWith("/api/proposal") && agent?.name === "Agent 2")
+        return new Promise<Response>(() => {});
+      return original(input, init);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /add an agent/i }));
+    await user.click(
+      screen.getByRole("button", { name: /generate strategy/i }),
+    );
+    expect(await screen.findByText("BTC-USD")).toBeInTheDocument();
+    expect(screen.getByText(/studying the market/i)).toBeInTheDocument();
+    const execute = screen.getByRole("button", { name: /execute this trade/i });
+    expect(execute).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /^lock in$/i }));
+    expect(execute).toBeEnabled();
+    expect(
+      screen.getByText(/1 of 1 locked in · \$25\.00 to buy/i),
     ).toBeInTheDocument();
   });
 
