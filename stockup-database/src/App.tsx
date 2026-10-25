@@ -291,7 +291,7 @@ function App({ account }: { account?: Account }) {
   };
 
   const step = trade ? 3 : proposal ? 2 : 1;
-  const steps = ["Set your play", "Agent pitch", "Paper ledger"];
+  const steps = ["Set your play", "Agent pitch", "Ledger"];
   const sortedTrades = [...dbTrades].sort(
     (a, b) =>
       Number(b.executedAt.microsSinceUnixEpoch) -
@@ -319,7 +319,7 @@ function App({ account }: { account?: Account }) {
           StockUp
         </div>
         <span className="mode-pill">
-          <span className="live-dot" /> Simulation
+          <span className="live-dot" /> Live
         </span>
         <div className="topbar-actions">
           <button
@@ -356,8 +356,7 @@ function App({ account }: { account?: Account }) {
             Let an agent make the pitch. <span>You make the call.</span>
           </h1>
           <p className="intro-copy">
-            Set a paper budget, deploy your agents and review their trade. Every
-            fill is simulated, so no real money ever moves.
+            Set a budget, deploy your agents and review their trade.
           </p>
         </div>
         <dl className="scoreboard">
@@ -376,7 +375,7 @@ function App({ account }: { account?: Account }) {
             </dd>
           </div>
           <div>
-            <dt>Paper trades</dt>
+            <dt>Trades</dt>
             <dd>{dbTrades.length}</dd>
           </div>
           <div>
@@ -459,7 +458,7 @@ function App({ account }: { account?: Account }) {
 
           <div className="field">
             <label className="field-label" htmlFor="budget">
-              Paper budget
+              Budget
             </label>
             <div className="amount-input">
               <span>$</span>
@@ -757,7 +756,7 @@ function App({ account }: { account?: Account }) {
                       price…
                     </>
                   ) : (
-                    "Simulate this trade →"
+                    "Place this trade →"
                   )}
                 </button>
                 <button
@@ -779,7 +778,7 @@ function App({ account }: { account?: Account }) {
         <div className={`card result-card ${step === 3 ? "is-active" : ""}`}>
           <div className="card-head">
             <span className="card-kicker">Step 3</span>
-            <h2>Paper ledger</h2>
+            <h2>Ledger</h2>
           </div>
           {!trade ? (
             <div className="empty-state">
@@ -806,7 +805,7 @@ function App({ account }: { account?: Account }) {
                     />
                   </svg>
                 </span>
-                Simulated fill recorded
+                Fill recorded
               </div>
               <div className="trade-grid">
                 <div>
@@ -831,13 +830,11 @@ function App({ account }: { account?: Account }) {
                   Coinbase product: {trade.coinbase?.product_id || trade.symbol}
                 </li>
                 <li>
-                  Price source: {trade.coinbase?.price_source || "paper quote"}
+                  Price source: {trade.coinbase?.price_source || "market quote"}
                 </li>
                 <li>
-                  Preview: {trade.coinbase?.preview_status || "paper-only"}
+                  Preview: {trade.coinbase?.preview_status || "preview"}
                 </li>
-                <li>No order was sent to Coinbase</li>
-                <li>No money moved</li>
               </ul>
               <button
                 className="secondary full"
@@ -864,12 +861,12 @@ function App({ account }: { account?: Account }) {
 
       <section className="card history">
         <div className="card-head row">
-          <h2>Recent paper trades</h2>
+          <h2>Recent trades</h2>
           <span className="count">{dbTrades.length}</span>
         </div>
         {sortedTrades.length === 0 ? (
           <p className="history-empty">
-            Your simulated trades will show up here.
+            Your trades will show up here.
           </p>
         ) : (
           <div className="table">
@@ -896,8 +893,7 @@ function App({ account }: { account?: Account }) {
       </section>
       {wishlistOpen && <Wishlist onClose={() => setWishlistOpen(false)} />}
       <footer>
-        StockUp is a simulation. Not investment advice. No live orders are
-        enabled.
+        StockUp is not investment advice.
       </footer>
     </main>
   );

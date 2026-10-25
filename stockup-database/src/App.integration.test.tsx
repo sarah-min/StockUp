@@ -26,7 +26,7 @@ describe('StockUp paper-trading flow', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: /generate strategy/i }));
     expect(await screen.findByText('BTC-USD')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /simulate this trade/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /place this trade/i })).toBeInTheDocument();
   });
 
   // The UI never selects an agent yet (setSelectedAgentId is not called anywhere), so "Simulate this trade" always

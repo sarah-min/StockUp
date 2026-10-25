@@ -89,10 +89,10 @@ export default function Login() {
         <div className="auth-pitch">
           <h1>
             Trade with agents.
-            <span> Risk nothing.</span>
+            <span> Grow your wins.</span>
           </h1>
           <p>
-            Start with $1,000 of paper money, deploy AI agents and turn profits
+            Start with $1,000, deploy AI agents and turn profits
             into wishlist rewards.
           </p>
           <svg
@@ -112,7 +112,7 @@ export default function Login() {
             <circle className="auth-chart-dot" cx="320" cy="18" r="4" />
           </svg>
           <ul className="auth-points">
-            <li>Paper trades only. No real money moves.</li>
+            <li>Every agent trades toward your goals.</li>
             <li>Your agents and trades are saved to your account.</li>
           </ul>
         </div>
