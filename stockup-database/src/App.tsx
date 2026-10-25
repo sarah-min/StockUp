@@ -5,6 +5,7 @@ import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
 import Purchases from "./Purchases";
 import Milestones from "./Milestones";
+import OpenPositions from "./OpenPositions";
 import { isOutOfDate, snapshotOf } from "./wishlistSnapshot";
 import ThemeToggle from "./ThemeToggle";
 import { useRealizedProfit } from "./realizedProfit";
@@ -1398,6 +1399,8 @@ function App({ account }: { account?: Account }) {
           </button>
         </div>
       )}
+
+      <OpenPositions />
 
       <section className="card history">
         <div className="card-head row">

@@ -1959,3 +1959,111 @@ footer {
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+/* ---------- Open positions ---------- */
+.positions {
+  margin-top: 14px;
+}
+.position-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.position-main {
+  flex: 1 1 220px;
+}
+.position-main,
+.position-value {
+  display: grid;
+  gap: 2px;
+}
+.position-main span,
+.position-value span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.position-value {
+  text-align: right;
+}
+.position-value .gain {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.position-value .loss {
+  color: var(--danger);
+  font-weight: 600;
+}
+.position-sell {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.sell-slider {
+  width: 160px;
+}
+.sell-slider .range {
+  margin: 0 0 4px;
+}
+.sell-ticks {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+}
+.sell-amount {
+  display: grid;
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.sell-amount small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.sell-button {
+  padding: 7px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.sell-button:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--bg);
+}
+.sell-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sell-notice {
+  margin: 0 0 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 13px;
+}
+
+.demo-tag {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text) !important;
+  font-size: 10px !important;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
