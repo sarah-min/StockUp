@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import "./App.css";
-import { useReducer, useTable } from "spacetimedb/react";
+import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
 import Purchases from "./Purchases";
 import ThemeToggle from "./ThemeToggle";
 import type { Account } from "./AuthGate";
-import { useMyUserId } from "./useMyUserId";
 
 type AssetType = "crypto" | "stock";
 type Proposal = {
@@ -18,6 +17,8 @@ type Proposal = {
   rationale: string;
   risk: "low" | "medium" | "high";
   source: "creao" | "demo";
+  recommendations?: string[];
+  agent?: string;
 };
 type Trade = Proposal & {
   id: string;
@@ -50,9 +51,9 @@ const QUANTITY_SCALE = 1_000_000;
 const MAX_AGENTS = 10;
 const BUDGET_PRESETS = [50, 100, 500, 1000];
 const PERSONALITIES = [
-  { value: "personality-1", label: "Personality 1" },
-  { value: "personality-2", label: "Personality 2" },
-  { value: "personality-3", label: "Personality 3" },
+  { value: "personality-1", label: "Agrarian Trader" },
+  { value: "personality-2", label: "Artist Trader" },
+  { value: "personality-3", label: "Realist Trader" },
 ];
 // One stable colour per agent slot, reused by the split bar and the agent cards.
 const AGENT_COLORS = [
@@ -67,6 +68,11 @@ const AGENT_COLORS = [
   "#4f46e5",
   "#0d9488",
 ];
+type Milestone = {
+  name: string;
+  target: string;
+  rationale: string;
+};
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -93,6 +99,10 @@ function App({ account }: { account?: Account }) {
   const [assetType, setAssetType] = useState<AssetType>("crypto");
   const [health, setHealth] = useState<Health | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [proposalApproved, setProposalApproved] = useState(false);
+  const [wishlist, setWishlist] = useState("");
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [milestonesAccepted, setMilestonesAccepted] = useState(false);
   const [trade, setTrade] = useState<Trade | null>(null);
   const [dbTrades] = useTable(tables.trade);
   const [loading, setLoading] = useState(false);
@@ -106,49 +116,44 @@ function App({ account }: { account?: Account }) {
       personality: "personality-1",
     },
   ]);
+  const { identity } = useSpacetimeDB();
   const createAgent = useReducer(reducers.createAgent);
   const executeTrade = useReducer(reducers.executeTrade);
   const [agents] = useTable(tables.agent);
-  const myUserId = useMyUserId();
+  const [sessions] = useTable(tables.session);
+  const currentSession = sessions.find(
+    (session) => session.identity.toHexString() === identity?.toHexString(),
+  );
+  const ownedAgents = agents.filter(
+    (agent) => currentSession && agent.userId === currentSession.userId,
+  );
   const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
   const [agentsCreated, setAgentsCreated] = useState(false);
+  useEffect(() => {
+    if (
+      (selectedAgentId === null ||
+        !ownedAgents.some((agent) => agent.id === selectedAgentId)) &&
+      ownedAgents.length > 0
+    ) {
+      setSelectedAgentId(ownedAgents[0].id);
+    }
+  }, [ownedAgents, selectedAgentId]);
 
   async function saveAgents() {
+    if (ownedAgents.length > 0) {
+      setAgentsCreated(true);
+      return;
+    }
+
     if (!allocationsValid) {
       setError(allocationError);
       return;
     }
 
-    // Agent rows persist in SpacetimeDB, while this React state resets on a
-    // page reload. Reuse this user's rows instead of inserting duplicates.
-    const ownedAgents =
-      myUserId === undefined
-        ? []
-        : agents
-            .filter((agent) => agent.userId === myUserId)
-            .sort((left, right) => (left.id < right.id ? -1 : 1));
-
-    if (ownedAgents.length >= agentAllocations.length) {
-      setAgentsCreated(true);
-      if (selectedAgentId === null && ownedAgents[0]) {
-        setSelectedAgentId(ownedAgents[0].id);
-      }
-      return;
-    }
-
-    const userScope = myUserId?.toString() ?? account?.username ?? "session";
-    for (
-      let index = ownedAgents.length;
-      index < agentAllocations.length;
-      index += 1
-    ) {
-      const agent = agentAllocations[index];
-      if (!agent) continue;
+    for (const [index, agent] of agentAllocations.entries()) {
       await createAgent({
         name: `Agent ${index + 1}`,
-        // apiEndpoint is globally unique in the SpacetimeDB schema. Scope it
-        // by user so two teammates/accounts can both have an Agent 1.
-        apiEndpoint: `/api/agents/${userScope}/${index + 1}`,
+        apiEndpoint: `/api/agents/${identity?.toHexString()}/${index + 1}`,
         personality: agent.personality,
         initialBalanceCents: BigInt(Math.round(agent.allocation * 100)),
       });
@@ -156,20 +161,6 @@ function App({ account }: { account?: Account }) {
 
     setAgentsCreated(true);
   }
-
-  // The subscription update after createAgent gives us the real database ID.
-  // Select the first owned agent so the next “Place this trade” action knows
-  // which ledger account should receive the simulated trade.
-  useEffect(() => {
-    if (myUserId === undefined) return;
-    const ownedAgents = agents
-      .filter((agent) => agent.userId === myUserId)
-      .sort((left, right) => (left.id < right.id ? -1 : 1));
-    if (ownedAgents.length >= agentNum) setAgentsCreated(true);
-    if (selectedAgentId === null && ownedAgents[0]) {
-      setSelectedAgentId(ownedAgents[0].id);
-    }
-  }, [agentNum, agents, myUserId, selectedAgentId]);
 
   useEffect(() => {
     request<Health>("/api/health")
@@ -192,6 +183,9 @@ function App({ account }: { account?: Account }) {
     setLoading(true);
     setError("");
     setTrade(null);
+    setProposalApproved(false);
+    setMilestones([]);
+    setMilestonesAccepted(false);
 
     try {
       if (!allocationsValid) {
@@ -212,6 +206,7 @@ function App({ account }: { account?: Account }) {
             allocation: agent.allocation,
             personality: agent.personality,
           })),
+          investmentType: agentSettings[0]?.personality,
         }),
       });
 
@@ -299,7 +294,21 @@ function App({ account }: { account?: Account }) {
   }
 
   const simulateTrade = async () => {
-    if (!proposal || selectedAgentId === null) {
+    if (!proposal) {
+      setError("Generate an agent proposal first");
+      return;
+    }
+    if (!proposalApproved) {
+      setError("Approve the agent proposal before simulating the trade");
+      return;
+    }
+    if (!milestonesAccepted) {
+      setError(
+        "Generate and accept your wishlist milestones before simulating the trade",
+      );
+      return;
+    }
+    if (selectedAgentId === null) {
       setError("Select an agent first");
       return;
     }
@@ -348,6 +357,34 @@ function App({ account }: { account?: Account }) {
   );
   const sliderMax = Math.max(1000, budget);
   const confidencePct = proposal ? Math.round(proposal.confidence * 100) : 0;
+
+  const generateMilestones = async () => {
+    if (!proposalApproved || !proposal || !wishlist.trim()) {
+      setError("Approve the proposal and enter a wishlist first");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setMilestonesAccepted(false);
+    try {
+      const result = await request<{ milestones: { milestones: Milestone[] } }>(
+        "/api/milestones",
+        {
+          method: "POST",
+          body: JSON.stringify({ wishlist, proposal }),
+        },
+      );
+      setMilestones(result.milestones.milestones);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not generate milestones",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <main className="shell">
@@ -445,7 +482,7 @@ function App({ account }: { account?: Account }) {
           </div>
           <div>
             <dt>Agents live</dt>
-            <dd>{agents.length}</dd>
+            <dd>{ownedAgents.length}</dd>
           </div>
         </dl>
       </section>
@@ -682,7 +719,7 @@ function App({ account }: { account?: Account }) {
                       role="radiogroup"
                       aria-label={`Agent ${index + 1} investment type`}
                     >
-                      {PERSONALITIES.map((option, optionIndex) => (
+                      {PERSONALITIES.map((option) => (
                         <button
                           key={option.value}
                           role="radio"
@@ -696,7 +733,7 @@ function App({ account }: { account?: Account }) {
                             updateAgentPersonality(index, option.value)
                           }
                         >
-                          Type {optionIndex + 1}
+                          {option.label}
                         </button>
                       ))}
                     </div>
@@ -805,37 +842,110 @@ function App({ account }: { account?: Account }) {
                   <i style={{ width: `${confidencePct}%` }} />
                 </div>
               </div>
-              <blockquote className="rationale">
-                {proposal.rationale}
-              </blockquote>
-              <div className="button-row">
-                <button
-                  className="primary"
-                  onClick={simulateTrade}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <Spinner /> Getting{" "}
-                      {proposal.asset_type === "crypto" ? "Coinbase" : "stock"}{" "}
-                      price…
-                    </>
-                  ) : (
-                    "Place this trade →"
+              {proposal.recommendations &&
+                proposal.recommendations.length > 0 && (
+                  <div className="recommendations">
+                    <span>Typical picks</span>
+                    <strong>{proposal.recommendations.join(", ")}</strong>
+                  </div>
+                )}
+              <p className="rationale">“{proposal.rationale}”</p>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setProposalApproved(true);
+                  setError("");
+                }}
+                disabled={loading}
+              >
+                {proposalApproved
+                  ? "Proposal approved ✓"
+                  : "Approve this proposal →"}
+              </button>
+              {proposalApproved && (
+                <div className="milestone-panel">
+                  <label htmlFor="wishlist">Wishlist / earning goals</label>
+                  <textarea
+                    id="wishlist"
+                    value={wishlist}
+                    onChange={(event) => {
+                      setWishlist(event.target.value);
+                      setMilestonesAccepted(false);
+                    }}
+                    placeholder="Example: Save for a $500 emergency fund and a new laptop."
+                    rows={3}
+                  />
+                  <button
+                    className="secondary"
+                    onClick={generateMilestones}
+                    disabled={loading || !wishlist.trim()}
+                  >
+                    {loading
+                      ? "Planning milestones…"
+                      : "Suggest earning milestones →"}
+                  </button>
+                  {milestones.length > 0 && (
+                    <div className="milestone-list">
+                      <span>Review or edit the suggestions</span>
+                      {milestones.map((milestone, index) => (
+                        <div
+                          className="milestone-row"
+                          key={`${milestone.name}-${index}`}
+                        >
+                          <input
+                            aria-label={`Milestone ${index + 1} name`}
+                            value={milestone.name}
+                            onChange={(event) =>
+                              setMilestones((current) =>
+                                current.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, name: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                          <input
+                            aria-label={`Milestone ${index + 1} target`}
+                            value={milestone.target}
+                            onChange={(event) => {
+                              setMilestonesAccepted(false);
+                              setMilestones((current) =>
+                                current.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, target: event.target.value }
+                                    : item,
+                                ),
+                              );
+                            }}
+                          />
+                          <small>{milestone.rationale}</small>
+                        </div>
+                      ))}
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          setMilestonesAccepted(true);
+                          setError("");
+                        }}
+                      >
+                        {milestonesAccepted
+                          ? "Milestones accepted ✓"
+                          : "Accept milestones →"}
+                      </button>
+                    </div>
                   )}
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setProposal(null);
-                    setTrade(null);
-                    setError("");
-                  }}
-                  disabled={loading}
-                >
-                  Pass
-                </button>
-              </div>
+                </div>
+              )}
+              <button
+                className="primary"
+                onClick={simulateTrade}
+                disabled={loading || !proposalApproved}
+              >
+                {loading
+                  ? `Getting ${proposal.asset_type === "crypto" ? "Coinbase" : "stock"} price…`
+                  : "Simulate this trade →"}
+              </button>
             </div>
           )}
         </div>
