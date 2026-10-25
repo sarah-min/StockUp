@@ -1852,3 +1852,8 @@ footer {
     display: none;
   }
 }
+
+.chip:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

@@ -129,7 +129,6 @@ function App({ account }: { account?: Account }) {
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
   const [error, setError] = useState("");
-  const [realizedProfit, setRealizedProfit] = useState<number | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
     {
       allocation: MIN_AGENT_ALLOCATION,
@@ -141,9 +140,13 @@ function App({ account }: { account?: Account }) {
   const executeSimulatedTrade = useReducer(reducers.executeSimulatedTrade);
   const [agents] = useTable(tables.agent);
   const [sessions] = useTable(tables.session);
+  const [users] = useTable(tables.user);
   const currentSession = sessions.find(
     (session) => session.identity.toHexString() === identity?.toHexString(),
   );
+  const myUser = users.find((user) => user.id === currentSession?.userId);
+  // Paper cash not yet handed to an agent; new agents are funded from this.
+  const availableUsd = myUser ? Number(myUser.balanceCents) / 100 : null;
   const ownedAgents = agents.filter(
     (agent) => currentSession && agent.userId === currentSession.userId,
   );
@@ -171,20 +174,27 @@ function App({ account }: { account?: Account }) {
     PERSONALITIES.find((option) => option.value === value)?.label ?? "Trader";
 
   async function saveAgents() {
-    if (ownedAgents.length > 0) {
+    // Agents already exist (or were just created and haven't arrived through the subscription yet):
+    // never create a second set, which would drain the account's cash.
+    if (ownedAgents.length > 0 || agentsCreated) {
       setAgentsCreated(true);
       return;
     }
 
     if (!allocationsValid) {
-      setError(allocationError);
-      return;
+      throw new Error(allocationError);
+    }
+    if (availableUsd !== null && budget > availableUsd) {
+      throw new Error(
+        `Your budget is more than your ${money.format(availableUsd)} of available cash`,
+      );
     }
 
     for (const [index, agent] of agentAllocations.entries()) {
       await createAgent({
         name: `Agent ${index + 1}`,
-        apiEndpoint: `/api/agents/${identity?.toHexString()}/${index + 1}`,
+        // apiEndpoint is unique across all users; the user id is stable across browsers and logins.
+        apiEndpoint: `/api/agents/u${currentSession?.userId ?? identity?.toHexString()}/${index + 1}`,
         personality: agent.personality,
         initialBalanceCents: BigInt(Math.round(agent.allocation * 100)),
       });
@@ -197,17 +207,6 @@ function App({ account }: { account?: Account }) {
     request<Health>("/api/health")
       .then(setHealth)
       .catch(() => setHealth(null));
-  }, []);
-
-  // Scoreboard: realized paper profit, refreshed in the background.
-  useEffect(() => {
-    const load = () =>
-      request<{ realized_profit: number }>("/api/portfolio")
-        .then((result) => setRealizedProfit(result.realized_profit))
-        .catch(() => undefined);
-    void load();
-    const timer = setInterval(load, 10_000);
-    return () => clearInterval(timer);
   }, []);
 
   function patchRound(name: string, patch: Partial<RoundEntry>) {
@@ -227,10 +226,7 @@ function App({ account }: { account?: Account }) {
 
     try {
       const deployed = ownedAgents.length > 0;
-      if (!deployed) {
-        if (!allocationsValid) throw new Error(allocationError);
-        await saveAgents();
-      }
+      if (!deployed) await saveAgents();
 
       const roster = deployed
         ? [...ownedAgents]
@@ -418,10 +414,14 @@ function App({ account }: { account?: Account }) {
           body: JSON.stringify({ proposal: advice }),
         });
 
-        // SpacetimeDB records the simulated trade and updates its fixed-point position.
-        let quantityMicros = BigInt(
-          Math.round(result.trade.quantity * QUANTITY_SCALE),
+        // SpacetimeDB stores the price in whole cents. Derive the quantity from that stored price so the recorded
+        // total matches the advised amount (deriving it from the unrounded quote over-books cheap coins, and a buy of
+        // the agent's full cash could fail with "insufficient funds").
+        const priceCents = BigInt(
+          Math.max(1, Math.round(result.trade.price * 100)),
         );
+        const amountCents = BigInt(Math.floor(advice.amount_usd * 100));
+        let quantityMicros = (amountCents * 1_000_000n) / priceCents;
         if (advice.action === "sell") {
           // Never sell more than the agent holds (price moves and rounding can overshoot by a hair).
           const held =
@@ -429,7 +429,9 @@ function App({ account }: { account?: Account }) {
               ?.quantityMicros ?? 0n;
           if (quantityMicros > held) quantityMicros = held;
         }
-        const priceCents = BigInt(Math.round(result.trade.price * 100));
+        if (quantityMicros <= 0n) {
+          throw new Error("That amount is too small to trade at this price");
+        }
         const totalCents =
           (quantityMicros * priceCents + 999_999n) / 1_000_000n;
         await executeSimulatedTrade({
@@ -440,7 +442,15 @@ function App({ account }: { account?: Account }) {
           priceCents,
           totalCents,
         });
-        patchRound(entry.name, { status: "filled", fill: result.trade });
+        patchRound(entry.name, {
+          status: "filled",
+          fill: {
+            ...result.trade,
+            quantity: Number(quantityMicros) / QUANTITY_SCALE,
+            price: Number(priceCents) / 100,
+            amount_usd: Number(totalCents) / 100,
+          },
+        });
       } catch (err) {
         patchRound(entry.name, {
           status: "error",
@@ -467,19 +477,54 @@ function App({ account }: { account?: Account }) {
   const approvedSellUsd = approvedEntries
     .filter((e) => e.advice!.action === "sell")
     .reduce((sum, e) => sum + e.advice!.amount_usd, 0);
-  const sortedTrades = [...dbTrades].sort(
+  const myTrades = dbTrades.filter(
+    (item) => currentSession && item.userId === currentSession.userId,
+  );
+  const sortedTrades = [...myTrades].sort(
     (a, b) =>
       Number(b.executedAt.microsSinceUnixEpoch) -
       Number(a.executedAt.microsSinceUnixEpoch),
   );
   const visibleSimulatedTrades = simulatedTrades.filter(
-    (item) => !currentSession || item.userId === currentSession.userId,
+    (item) => currentSession && item.userId === currentSession.userId,
   );
+  // Realized P/L, average-cost method, per agent and symbol, from this user's own recorded trades.
+  const realizedProfit = (() => {
+    if (!currentSession) return null;
+    const books = new Map<string, { micros: bigint; costCents: number }>();
+    let realizedCents = 0;
+    const ordered = [...visibleSimulatedTrades].sort(
+      (a, b) =>
+        Number(a.executedAt.microsSinceUnixEpoch) -
+          Number(b.executedAt.microsSinceUnixEpoch) || Number(a.id - b.id),
+    );
+    for (const item of ordered) {
+      const key = `${item.agentId}:${item.symbol}`;
+      const book = books.get(key) ?? { micros: 0n, costCents: 0 };
+      const total = Number(item.totalCents);
+      if (item.side === "buy") {
+        book.micros += item.quantityMicros;
+        book.costCents += total;
+      } else if (book.micros > 0n) {
+        const sold =
+          item.quantityMicros < book.micros ? item.quantityMicros : book.micros;
+        const costOfSold =
+          (book.costCents * Number(sold)) / Number(book.micros);
+        realizedCents +=
+          (total * Number(sold)) / Number(item.quantityMicros) - costOfSold;
+        book.micros -= sold;
+        book.costCents -= costOfSold;
+      }
+      books.set(key, book);
+    }
+    return realizedCents / 100;
+  })();
   const sortedSimulatedTrades = [...visibleSimulatedTrades].sort(
     (a, b) =>
       Number(b.executedAt.microsSinceUnixEpoch) -
       Number(a.executedAt.microsSinceUnixEpoch),
   );
+  const overBudget = availableUsd !== null && budget > availableUsd;
   const sliderMax = Math.max(1000, budget);
 
   const generateMilestones = async () => {
@@ -610,7 +655,7 @@ function App({ account }: { account?: Account }) {
           </div>
           <div>
             <dt>Trades</dt>
-            <dd>{dbTrades.length + visibleSimulatedTrades.length}</dd>
+            <dd>{myTrades.length + visibleSimulatedTrades.length}</dd>
           </div>
           <div>
             <dt>Agents live</dt>
@@ -787,11 +832,22 @@ function App({ account }: { account?: Account }) {
                       key={preset}
                       className={`chip ${budget === preset ? "selected" : ""}`}
                       onClick={() => changeBudget(preset)}
+                      disabled={availableUsd !== null && preset > availableUsd}
                     >
                       ${preset.toLocaleString()}
                     </button>
                   ))}
                 </div>
+                {availableUsd !== null && (
+                  <p
+                    className={overBudget ? "inline-error" : "helper"}
+                    role={overBudget ? "alert" : undefined}
+                  >
+                    {overBudget
+                      ? `More than your ${money.format(availableUsd)} of available cash`
+                      : `${money.format(availableUsd)} available to deploy`}
+                  </p>
+                )}
               </div>
 
               <div className="field">
@@ -958,7 +1014,8 @@ function App({ account }: { account?: Account }) {
             onClick={generateProposal}
             disabled={
               loading ||
-              (ownedAgents.length === 0 && (budget <= 0 || !allocationsValid))
+              (ownedAgents.length === 0 &&
+                (budget <= 0 || !allocationsValid || overBudget))
             }
           >
             {thinking ? (
