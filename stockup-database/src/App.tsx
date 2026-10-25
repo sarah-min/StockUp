@@ -47,6 +47,7 @@ type AgentSettings = {
   personality: string;
 };
 const MIN_AGENT_ALLOCATION = 1; // dollars every agent must get
+const QUANTITY_SCALE = 1_000_000;
 const MAX_AGENTS = 10;
 const BUDGET_PRESETS = [50, 100, 500, 1000];
 const PERSONALITIES = [
@@ -99,11 +100,12 @@ function App({ account }: { account?: Account }) {
   const [health, setHealth] = useState<Health | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [proposalApproved, setProposalApproved] = useState(false);
-  const [wishlist, setWishlist] = useState("");
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [milestonesAccepted, setMilestonesAccepted] = useState(false);
   const [trade, setTrade] = useState<Trade | null>(null);
   const [dbTrades] = useTable(tables.trade);
+  const [simulatedTrades] = useTable(tables.simulatedTrade);
+  const [wishlistItems] = useTable(tables.wishlistProduct);
   const [loading, setLoading] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
@@ -117,7 +119,7 @@ function App({ account }: { account?: Account }) {
   ]);
   const { identity } = useSpacetimeDB();
   const createAgent = useReducer(reducers.createAgent);
-  const executeTrade = useReducer(reducers.executeTrade);
+  const executeSimulatedTrade = useReducer(reducers.executeSimulatedTrade);
   const [agents] = useTable(tables.agent);
   const [sessions] = useTable(tables.session);
   const currentSession = sessions.find(
@@ -126,6 +128,12 @@ function App({ account }: { account?: Account }) {
   const ownedAgents = agents.filter(
     (agent) => currentSession && agent.userId === currentSession.userId,
   );
+  const savedWishlist = wishlistItems.filter(
+    (item) => currentSession && item.userId === currentSession.userId,
+  );
+  const wishlistSummary = savedWishlist
+    .map((item) => `${item.title} (${money.format(Number(item.priceCents) / 100)})`)
+    .join(", ");
   const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
   const [agentsCreated, setAgentsCreated] = useState(false);
   useEffect(() => {
@@ -302,7 +310,9 @@ function App({ account }: { account?: Account }) {
       return;
     }
     if (!milestonesAccepted) {
-      setError("Generate and accept your wishlist milestones before simulating the trade");
+      setError(
+        "Generate and accept your wishlist milestones before simulating the trade",
+      );
       return;
     }
     if (selectedAgentId === null) {
@@ -320,17 +330,19 @@ function App({ account }: { account?: Account }) {
         body: JSON.stringify({ proposal }),
       });
 
-      // SpacetimeDB records the trade and updates balances/positions.
-      const wholeUnits = Math.floor(result.trade.quantity);
-      if (wholeUnits > 0) {
-        await executeTrade({
-          agentId: selectedAgentId,
-          side: result.trade.action,
-          symbol: result.trade.symbol,
-          quantity: BigInt(wholeUnits),
-          priceCents: BigInt(Math.round(result.trade.price * 100)),
-        });
-      }
+      // SpacetimeDB records the simulated trade and updates its fixed-point position.
+      const quantityMicros = BigInt(Math.round(result.trade.quantity * 1_000_000));
+      const priceCents = BigInt(Math.round(result.trade.price * 100));
+      const totalCents =
+        (quantityMicros * priceCents + 999_999n) / 1_000_000n;
+      await executeSimulatedTrade({
+        agentId: selectedAgentId,
+        side: result.trade.action,
+        symbol: result.trade.symbol,
+        quantityMicros,
+        priceCents,
+        totalCents,
+      });
 
       setTrade(result.trade);
 
@@ -351,12 +363,20 @@ function App({ account }: { account?: Account }) {
       Number(b.executedAt.microsSinceUnixEpoch) -
       Number(a.executedAt.microsSinceUnixEpoch),
   );
+  const visibleSimulatedTrades = simulatedTrades.filter(
+    (item) => !currentSession || item.userId === currentSession.userId,
+  );
+  const sortedSimulatedTrades = [...visibleSimulatedTrades].sort(
+    (a, b) =>
+      Number(b.executedAt.microsSinceUnixEpoch) -
+      Number(a.executedAt.microsSinceUnixEpoch),
+  );
   const sliderMax = Math.max(1000, budget);
   const confidencePct = proposal ? Math.round(proposal.confidence * 100) : 0;
 
   const generateMilestones = async () => {
-    if (!proposalApproved || !proposal || !wishlist.trim()) {
-      setError("Approve the proposal and enter a wishlist first");
+    if (!proposalApproved || !proposal || !wishlistSummary) {
+      setError("Approve the proposal and add something to your Wishlist first");
       return;
     }
     setLoading(true);
@@ -365,11 +385,15 @@ function App({ account }: { account?: Account }) {
     try {
       const result = await request<{ milestones: { milestones: Milestone[] } }>("/api/milestones", {
         method: "POST",
-        body: JSON.stringify({ wishlist, proposal }),
+        body: JSON.stringify({ wishlist: wishlistSummary, proposal }),
       });
       setMilestones(result.milestones.milestones);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not generate milestones");
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not generate milestones",
+      );
     } finally {
       setLoading(false);
     }
@@ -831,12 +855,13 @@ function App({ account }: { account?: Account }) {
                   <i style={{ width: `${confidencePct}%` }} />
                 </div>
               </div>
-              {proposal.recommendations && proposal.recommendations.length > 0 && (
-                <div className="recommendations">
-                  <span>Typical picks</span>
-                  <strong>{proposal.recommendations.join(", ")}</strong>
-                </div>
-              )}
+              {proposal.recommendations &&
+                proposal.recommendations.length > 0 && (
+                  <div className="recommendations">
+                    <span>Typical picks</span>
+                    <strong>{proposal.recommendations.join(", ")}</strong>
+                  </div>
+                )}
               <p className="rationale">“{proposal.rationale}”</p>
               <button
                 className="secondary"
@@ -846,57 +871,73 @@ function App({ account }: { account?: Account }) {
                 }}
                 disabled={loading}
               >
-                {proposalApproved ? "Proposal approved ✓" : "Approve this proposal →"}
+                {proposalApproved
+                  ? "Proposal approved ✓"
+                  : "Approve this proposal →"}
               </button>
               {proposalApproved && (
                 <div className="milestone-panel">
-                  <label htmlFor="wishlist">Wishlist / earning goals</label>
-                  <textarea
-                    id="wishlist"
-                    value={wishlist}
-                    onChange={(event) => {
-                      setWishlist(event.target.value);
-                      setMilestonesAccepted(false);
-                    }}
-                    placeholder="Example: Save for a $500 emergency fund and a new laptop."
-                    rows={3}
-                  />
+                  <span className="section-label">Investment milestones</span>
+                  {wishlistSummary ? (
+                    <p className="helper">
+                      Based on your saved Wishlist: {wishlistSummary}
+                    </p>
+                  ) : (
+                    <p className="helper">
+                      Add an item to your Wishlist before generating milestones.
+                    </p>
+                  )}
                   <button
                     className="secondary"
                     onClick={generateMilestones}
-                    disabled={loading || !wishlist.trim()}
+                    disabled={loading || !wishlistSummary}
                   >
-                    {loading ? "Planning milestones…" : "Suggest earning milestones →"}
+                    {loading
+                      ? "Planning milestones…"
+                      : "Suggest earning milestones →"}
                   </button>
                   {milestones.length > 0 && (
                     <div className="milestone-list">
-                      <span>Review or edit the suggestions</span>
+                      <span className="milestone-list-heading">
+                        Review or edit the suggestions
+                      </span>
                       {milestones.map((milestone, index) => (
                         <div className="milestone-row" key={`${milestone.name}-${index}`}>
-                          <input
-                            aria-label={`Milestone ${index + 1} name`}
-                            value={milestone.name}
-                            onChange={(event) =>
-                              setMilestones((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, name: event.target.value } : item,
-                                ),
-                              )
-                            }
-                          />
-                          <input
-                            aria-label={`Milestone ${index + 1} target`}
-                            value={milestone.target}
-                            onChange={(event) => {
-                              setMilestonesAccepted(false);
-                              setMilestones((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, target: event.target.value } : item,
-                                ),
-                              );
-                            }}
-                          />
-                          <small>{milestone.rationale}</small>
+                          <span className="milestone-number">{index + 1}</span>
+                          <div className="milestone-content">
+                            <label>
+                              <span>Milestone</span>
+                              <input
+                                aria-label={`Milestone ${index + 1} name`}
+                                value={milestone.name}
+                                onChange={(event) => {
+                                  setMilestonesAccepted(false);
+                                  setMilestones((current) =>
+                                    current.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, name: event.target.value } : item,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </label>
+                            <label>
+                              <span>Profit target</span>
+                              <input
+                                className="milestone-target"
+                                aria-label={`Milestone ${index + 1} target`}
+                                value={milestone.target}
+                                onChange={(event) => {
+                                  setMilestonesAccepted(false);
+                                  setMilestones((current) =>
+                                    current.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, target: event.target.value } : item,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </label>
+                            {milestone.rationale && <small>{milestone.rationale}</small>}
+                          </div>
                         </div>
                       ))}
                       <button
@@ -906,7 +947,9 @@ function App({ account }: { account?: Account }) {
                           setError("");
                         }}
                       >
-                        {milestonesAccepted ? "Milestones accepted ✓" : "Accept milestones →"}
+                        {milestonesAccepted
+                          ? "Milestones accepted ✓"
+                          : "Accept milestones →"}
                       </button>
                     </div>
                   )}
@@ -1010,9 +1053,9 @@ function App({ account }: { account?: Account }) {
       <section className="card history">
         <div className="card-head row">
           <h2>Recent trades</h2>
-          <span className="count">{dbTrades.length}</span>
+          <span className="count">{sortedTrades.length + sortedSimulatedTrades.length}</span>
         </div>
-        {sortedTrades.length === 0 ? (
+        {sortedTrades.length === 0 && sortedSimulatedTrades.length === 0 ? (
           <p className="history-empty">Your trades will show up here.</p>
         ) : (
           <div className="table">
@@ -1031,7 +1074,20 @@ function App({ account }: { account?: Account }) {
                 </span>
                 <span>{money.format(Number(item.totalCents) / 100)}</span>
                 <span>@ {money.format(Number(item.priceCents) / 100)}</span>
-                <span>{item.quantity.toString()} shares</span>
+                <span>
+                  {(Number(item.quantity) / QUANTITY_SCALE).toFixed(6)} units
+                </span>
+              </div>
+            ))}
+            {sortedSimulatedTrades.map((item) => (
+              <div className="table-row" key={`simulated-${item.id.toString()}`}>
+                <strong>{item.symbol}</strong>
+                <span>
+                  <span className={`side side-${item.side}`}>{item.side}</span>
+                </span>
+                <span>{money.format(Number(item.totalCents) / 100)}</span>
+                <span>@ {money.format(Number(item.priceCents) / 100)}</span>
+                <span>{(Number(item.quantityMicros) / 1_000_000).toFixed(6)} units</span>
               </div>
             ))}
           </div>

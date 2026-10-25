@@ -51,9 +51,12 @@ let connectionBuilder = DbConnection.builder()
         tables.user,
         tables.agent,
         tables.trade,
+        tables.simulatedTrade,
+        tables.simulatedPosition,
         tables.agentPosition,
         tables.marketPrice,
         tables.session,
+        tables.wishlistProduct,
       ]);
   })
   .onConnectError((_ctx, error) => {

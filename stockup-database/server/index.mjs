@@ -51,7 +51,46 @@ function extractJson(text) {
   return JSON.parse(match[0]);
 }
 
+function findStructuredResult(value, depth = 0) {
+  if (depth > 6 || value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    try {
+      return findStructuredResult(extractJson(value), depth + 1);
+    } catch {
+      return null;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStructuredResult(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+  if (
+    value.milestones ||
+    value.thresholds ||
+    value.goals ||
+    value.recommended_assets ||
+    value.recommendations ||
+    value.picks ||
+    value.symbol ||
+    value.ticker ||
+    value.asset
+  ) {
+    return value;
+  }
+  for (const nested of Object.values(value)) {
+    const found = findStructuredResult(nested, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 async function extractAgentResult(result) {
+  const structured = findStructuredResult(result);
+  if (structured) return structured;
   const candidates = [
     result.result,
     result.output,
@@ -219,7 +258,7 @@ async function runCreaoForAsset(budget, assetType, investmentType = 'personality
 }
 
 function normalizeMilestones(value, wishlist, proposal) {
-  const raw = value.milestones || value.thresholds || value.goals || [];
+  const raw = value.milestones || value.milestone || value.thresholds || value.goals || [];
   const conversationalReply = String(value.response || value.message || value.text || '').trim();
   const entries = Array.isArray(raw)
     ? raw
@@ -228,8 +267,8 @@ function normalizeMilestones(value, wishlist, proposal) {
     if (typeof item === 'string') return { name: item, target: '', rationale: '' };
     return {
       name: String(item.name || item.title || item.goal || `Milestone ${index + 1}`),
-      target: String(item.target || item.threshold || item.value || ''),
-      rationale: String(item.rationale || item.reason || ''),
+      target: String(item.target || item.profit_target || item.profitTarget || item.threshold || item.value || ''),
+      rationale: String(item.rationale || item.reason || item.description || item.why || ''),
     };
   }).filter((item) => item.name && item.target);
   return {
@@ -352,8 +391,16 @@ async function coinbasePreview({ productId, assetType, action, amountUsd, price 
     if (!preview) return { status: 'paper-only', source: 'local-simulation', message: 'Install and authenticate the Coinbase CLI to enable Coinbase order previews.' };
     return { status: 'previewed', source: 'coinbase-agent-cli', preview };
   } catch (error) {
-    if (assetType === 'stock') return { status: 'unavailable', source: 'coinbase-agent-cli', message: error.message };
-    throw error;
+    // StockUp is paper-only: Coinbase order previews can still reject a
+    // request because the connected portfolio has no funds, even though no
+    // live order would ever be created here. Preserve the simulation by
+    // recording the Coinbase error as diagnostic metadata instead of making
+    // Generate Trade fail.
+    return {
+      status: 'paper-only',
+      source: 'local-simulation',
+      message: `Coinbase order preview unavailable; simulated locally: ${error.message}`,
+    };
   }
 }
 

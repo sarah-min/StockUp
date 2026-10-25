@@ -40,6 +40,7 @@ import BeginPurchaseReducer from "./begin_purchase_reducer";
 import ClaimOrderServerReducer from "./claim_order_server_reducer";
 import CreateAgentReducer from "./create_agent_reducer";
 import CreateUserReducer from "./create_user_reducer";
+import ExecuteSimulatedTradeReducer from "./execute_simulated_trade_reducer";
 import ExecuteTradeReducer from "./execute_trade_reducer";
 import LoginReducer from "./login_reducer";
 import LogoutReducer from "./logout_reducer";
@@ -54,6 +55,8 @@ import AgentRow from "./agent_table";
 import AgentPositionRow from "./agent_position_table";
 import MarketPriceRow from "./market_price_table";
 import SessionRow from "./session_table";
+import SimulatedPositionRow from "./simulated_position_table";
+import SimulatedTradeRow from "./simulated_trade_table";
 import TradeRow from "./trade_table";
 import UserRow from "./user_table";
 import WishlistItemRow from "./wishlist_item_table";
@@ -121,6 +124,37 @@ const tablesSchema = __schema({
       { name: 'session_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, SessionRow),
+  simulatedPosition: __table({
+    name: 'simulated_position',
+    indexes: [
+      { accessor: 'simulated_positions_by_agent', name: 'simulated_position_agent_id_idx_btree', algorithm: 'btree', columns: [
+        'agentId',
+      ] },
+      { accessor: 'id', name: 'simulated_position_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'simulated_position_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SimulatedPositionRow),
+  simulatedTrade: __table({
+    name: 'simulated_trade',
+    indexes: [
+      { accessor: 'simulated_trades_by_agent', name: 'simulated_trade_agent_id_idx_btree', algorithm: 'btree', columns: [
+        'agentId',
+      ] },
+      { accessor: 'id', name: 'simulated_trade_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'simulated_trades_by_user', name: 'simulated_trade_user_id_idx_btree', algorithm: 'btree', columns: [
+        'userId',
+      ] },
+    ],
+    constraints: [
+      { name: 'simulated_trade_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SimulatedTradeRow),
   trade: __table({
     name: 'trade',
     indexes: [
@@ -210,6 +244,7 @@ const reducersSchema = __reducers(
   __reducerSchema("claim_order_server", ClaimOrderServerReducer),
   __reducerSchema("create_agent", CreateAgentReducer),
   __reducerSchema("create_user", CreateUserReducer),
+  __reducerSchema("execute_simulated_trade", ExecuteSimulatedTradeReducer),
   __reducerSchema("execute_trade", ExecuteTradeReducer),
   __reducerSchema("login", LoginReducer),
   __reducerSchema("logout", LogoutReducer),

@@ -71,6 +71,28 @@ export const Session = __t.object("Session", {
 });
 export type Session = __Infer<typeof Session>;
 
+export const SimulatedPosition = __t.object("SimulatedPosition", {
+  id: __t.u64(),
+  agentId: __t.u64(),
+  symbol: __t.string(),
+  quantityMicros: __t.u64(),
+});
+export type SimulatedPosition = __Infer<typeof SimulatedPosition>;
+
+export const SimulatedTrade = __t.object("SimulatedTrade", {
+  id: __t.u64(),
+  userId: __t.u64(),
+  agentId: __t.u64(),
+  marketUserId: __t.u64(),
+  side: __t.string(),
+  symbol: __t.string(),
+  quantityMicros: __t.u64(),
+  priceCents: __t.u64(),
+  totalCents: __t.u64(),
+  executedAt: __t.timestamp(),
+});
+export type SimulatedTrade = __Infer<typeof SimulatedTrade>;
+
 export const Trade = __t.object("Trade", {
   id: __t.u64(),
   userId: __t.u64(),
