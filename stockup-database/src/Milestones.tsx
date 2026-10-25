@@ -50,13 +50,19 @@ export default function Milestones({ onClose, canRegenerate, regenerating, error
       {!canRegenerate && <small className="wish-note">Add an item to your wishlist to generate milestones.</small>}
     </div>
     {milestones.length === 0 ? <p className="purchases-empty">No milestones yet.</p> : <div className="purchases-list">
-      {milestones.map((row, index) => <div className="purchase-card" key={String(row.id)}>
+      {milestones.map((row, index) => <div className={`purchase-card ${row.reached ? 'done' : ''}`} key={String(row.id)}>
         <div className="purchase-main">
-          <strong>{index + 1}. {row.name}</strong>
+          <strong>{row.reached ? '✓' : `${index + 1}.`} {row.name}</strong>
           {unlocks(row) && <span className="purchase-unlock">{row.reached ? 'Unlocked' : 'Unlocks'}: {unlocks(row)}</span>}
           {row.rationale && <span>{row.rationale}</span>}
         </div>
-        <div className="purchase-side"><span className="wish-price">{row.target}</span><span className={`badge ${row.reached ? 'order-delivered' : ''}`}>{row.reached ? 'reached' : 'profit target'}</span></div>
+        <div className="purchase-side">
+          <span className="wish-price">+{row.target}</span>
+          <small className="purchase-sub">{money.format(Number(row.baselineCents + row.targetCents) / 100)} total profit</small>
+          {row.reached
+            ? <span className="badge order-delivered">Completed</span>
+            : <small className="purchase-sub">{earned === null ? 'In progress' : earned >= Number(row.targetCents) / 100 ? (row.accepted ? 'Target met · unlocking…' : 'Target met · accept to unlock') : `${Math.max(0, Math.min(99, Math.round((earned / (Number(row.targetCents) / 100)) * 100)))}% earned`}</small>}
+        </div>
       </div>)}
     </div>}
   </div></div>;

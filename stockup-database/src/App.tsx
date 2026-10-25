@@ -1295,7 +1295,17 @@ function App({ account }: { account?: Account }) {
                                 </small>
                               )}
                             </span>
-                            <strong>{row.target}</strong>
+                            <strong>
+                              +{row.target}
+                              <small className="milestone-total">
+                                {" "}
+                                {money.format(
+                                  Number(row.baselineCents + row.targetCents) /
+                                    100,
+                                )}{" "}
+                                total
+                              </small>
+                            </strong>
                           </li>
                         ))}
                       </ul>
