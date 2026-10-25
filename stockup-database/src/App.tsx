@@ -47,6 +47,7 @@ type AgentSettings = {
   personality: string;
 };
 const MIN_AGENT_ALLOCATION = 1; // dollars every agent must get
+const QUANTITY_SCALE = 1_000_000;
 const MAX_AGENTS = 10;
 const BUDGET_PRESETS = [50, 100, 500, 1000];
 const PERSONALITIES = [
@@ -309,7 +310,9 @@ function App({ account }: { account?: Account }) {
       return;
     }
     if (!milestonesAccepted) {
-      setError("Generate and accept your wishlist milestones before simulating the trade");
+      setError(
+        "Generate and accept your wishlist milestones before simulating the trade",
+      );
       return;
     }
     if (selectedAgentId === null) {
@@ -386,7 +389,11 @@ function App({ account }: { account?: Account }) {
       });
       setMilestones(result.milestones.milestones);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not generate milestones");
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not generate milestones",
+      );
     } finally {
       setLoading(false);
     }
@@ -848,12 +855,13 @@ function App({ account }: { account?: Account }) {
                   <i style={{ width: `${confidencePct}%` }} />
                 </div>
               </div>
-              {proposal.recommendations && proposal.recommendations.length > 0 && (
-                <div className="recommendations">
-                  <span>Typical picks</span>
-                  <strong>{proposal.recommendations.join(", ")}</strong>
-                </div>
-              )}
+              {proposal.recommendations &&
+                proposal.recommendations.length > 0 && (
+                  <div className="recommendations">
+                    <span>Typical picks</span>
+                    <strong>{proposal.recommendations.join(", ")}</strong>
+                  </div>
+                )}
               <p className="rationale">“{proposal.rationale}”</p>
               <button
                 className="secondary"
@@ -863,7 +871,9 @@ function App({ account }: { account?: Account }) {
                 }}
                 disabled={loading}
               >
-                {proposalApproved ? "Proposal approved ✓" : "Approve this proposal →"}
+                {proposalApproved
+                  ? "Proposal approved ✓"
+                  : "Approve this proposal →"}
               </button>
               {proposalApproved && (
                 <div className="milestone-panel">
@@ -882,20 +892,27 @@ function App({ account }: { account?: Account }) {
                     onClick={generateMilestones}
                     disabled={loading || !wishlistSummary}
                   >
-                    {loading ? "Planning milestones…" : "Suggest earning milestones →"}
+                    {loading
+                      ? "Planning milestones…"
+                      : "Suggest earning milestones →"}
                   </button>
                   {milestones.length > 0 && (
                     <div className="milestone-list">
                       <span>Review or edit the suggestions</span>
                       {milestones.map((milestone, index) => (
-                        <div className="milestone-row" key={`${milestone.name}-${index}`}>
+                        <div
+                          className="milestone-row"
+                          key={`${milestone.name}-${index}`}
+                        >
                           <input
                             aria-label={`Milestone ${index + 1} name`}
                             value={milestone.name}
                             onChange={(event) =>
                               setMilestones((current) =>
                                 current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, name: event.target.value } : item,
+                                  itemIndex === index
+                                    ? { ...item, name: event.target.value }
+                                    : item,
                                 ),
                               )
                             }
@@ -907,7 +924,9 @@ function App({ account }: { account?: Account }) {
                               setMilestonesAccepted(false);
                               setMilestones((current) =>
                                 current.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, target: event.target.value } : item,
+                                  itemIndex === index
+                                    ? { ...item, target: event.target.value }
+                                    : item,
                                 ),
                               );
                             }}
@@ -922,7 +941,9 @@ function App({ account }: { account?: Account }) {
                           setError("");
                         }}
                       >
-                        {milestonesAccepted ? "Milestones accepted ✓" : "Accept milestones →"}
+                        {milestonesAccepted
+                          ? "Milestones accepted ✓"
+                          : "Accept milestones →"}
                       </button>
                     </div>
                   )}
@@ -1047,7 +1068,9 @@ function App({ account }: { account?: Account }) {
                 </span>
                 <span>{money.format(Number(item.totalCents) / 100)}</span>
                 <span>@ {money.format(Number(item.priceCents) / 100)}</span>
-                <span>{item.quantity.toString()} shares</span>
+                <span>
+                  {(Number(item.quantity) / QUANTITY_SCALE).toFixed(6)} units
+                </span>
               </div>
             ))}
             {sortedSimulatedTrades.map((item) => (
