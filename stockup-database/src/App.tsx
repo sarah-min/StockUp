@@ -712,8 +712,8 @@ function App({ account }: { account?: Account }) {
         </div>
         <dl className="scoreboard">
           <div>
-            <dt title="Profit from your trades, minus what you've spent on rewards">
-              Realized P/L
+            <dt title="Profit from your sells that you can still spend, after what rewards have cost">
+              Available profit
             </dt>
             <dd
               className={
