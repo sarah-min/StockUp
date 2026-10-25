@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { DbConnection, tables } from './module_bindings';
 
@@ -32,6 +32,12 @@ export default function Wishlist({ onClose }: Props) {
   const [error, setError] = useState('');
   const saved = new Set(items.map((item) => item.url));
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const search = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoading(true); setError('');
@@ -45,14 +51,38 @@ export default function Wishlist({ onClose }: Props) {
   };
 
   return <div className="modal-backdrop" onClick={onClose}><div className="modal card" role="dialog" aria-label="Wishlist" onClick={(event) => event.stopPropagation()}>
-    <div className="modal-head"><div className="card-label">WISHLIST · AUTO-BUY WHEN YOUR PORTFOLIO HITS THE TARGET{isActive ? '' : ' · connecting…'}</div><button className="modal-close" onClick={onClose} aria-label="Close">×</button></div>
-    <form className="wish-search" onSubmit={search}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products across retailers…" autoFocus /><button className="primary" disabled={loading || !query.trim()}>{loading ? 'Searching…' : 'Search'}</button></form>
-    {sandbox && <p className="helper">Zinc sandbox: results are sample products, no real orders.</p>}
-    {error && <div className="error">{error}</div>}
-    <div className="wish-columns">
-      <div><div className="card-label">RESULTS</div>{results.length === 0 ? <p className="history-empty">Search to find something to add.</p> : results.map((item) => <div className="wish-row" key={item.url}><div><strong>{item.title}</strong><span>{item.retailer}{item.brand ? ` · ${item.brand}` : ''}{item.stars ? ` · ★${item.stars}` : ''}</span></div><span>{money.format(item.price_cents / 100)}</span><button className="secondary" disabled={!isActive || saved.has(item.url)} onClick={() => onAdd(item)}>{saved.has(item.url) ? 'Added' : 'Add'}</button></div>)}</div>
-      <div><div className="card-label">YOUR WISHLIST ({items.length})</div>{items.length === 0 ? <p className="history-empty">Nothing yet.</p> : items.map((item) => <div className="wish-row" key={String(item.id)}><div><strong>{item.title}</strong><span>{item.retailer}</span></div><span>{money.format(Number(item.priceCents) / 100)}</span><button className="secondary" onClick={() => onRemove(item.id)}>Remove</button></div>)}</div>
+    <div className="modal-head">
+      <div><h2>Wishlist</h2><p className="modal-sub">Rewards bought automatically when your paper profit hits the target.{isActive ? '' : ' Connecting…'}</p></div>
+      <button className="icon-button" onClick={onClose} aria-label="Close">×</button>
     </div>
-    {orders.length > 0 && <div className="wish-orders"><div className="card-label">ORDERS ({orders.length})</div>{orders.map((order) => <div className="wish-row" key={String(order.id)}><div><strong>{order.title}</strong><span>{order.carrier ? `${order.carrier}${order.trackingNumber ? ` · ${order.trackingNumber}` : ''}` : order.error ?? order.retailer}</span></div><span>{order.totalCents ? money.format(Number(order.totalCents) / 100) : money.format(Number(order.priceCents) / 100)}</span><span className={`order-status order-${order.status}`}>{order.status}</span></div>)}</div>}
+    <form className="wish-search" onSubmit={search}>
+      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products across retailers…" autoFocus />
+      <button className="primary" disabled={loading || !query.trim()}>{loading ? 'Searching…' : 'Search'}</button>
+    </form>
+    {sandbox && <p className="helper">Zinc sandbox: results are sample products, no real orders.</p>}
+    {error && <div className="error"><span>{error}</span></div>}
+    <div className="wish-columns">
+      <div>
+        <div className="section-label">Results</div>
+        {results.length === 0 ? <p className="history-empty">Search to find something to add.</p> : results.map((item) => <div className="wish-row" key={item.url}>
+          <div className="wish-info">{item.image ? <img src={item.image} alt="" loading="lazy" /> : <span className="wish-thumb" aria-hidden="true" />}<div><strong>{item.title}</strong><span>{item.retailer}{item.brand ? ` · ${item.brand}` : ''}{item.stars ? ` · ★${item.stars}` : ''}</span></div></div>
+          <span className="wish-price">{money.format(item.price_cents / 100)}</span>
+          <button className={saved.has(item.url) ? 'secondary small' : 'primary small'} disabled={!isActive || saved.has(item.url)} onClick={() => onAdd(item)}>{saved.has(item.url) ? 'Added ✓' : 'Add'}</button>
+        </div>)}
+      </div>
+      <div className="wish-saved">
+        <div className="section-label">Your wishlist <span className="count">{items.length}</span></div>
+        {items.length === 0 ? <p className="history-empty">Nothing yet. Cheapest items are bought first.</p> : items.map((item, index) => <div className="wish-row" key={String(item.id)}>
+          <div className="wish-info"><span className="wish-rank">{index + 1}</span><div><strong>{item.title}</strong><span>{item.retailer}</span></div></div>
+          <span className="wish-price">{money.format(Number(item.priceCents) / 100)}</span>
+          <button className="secondary small" onClick={() => onRemove(item.id)}>Remove</button>
+        </div>)}
+      </div>
+    </div>
+    {orders.length > 0 && <div className="wish-orders"><div className="section-label">Orders <span className="count">{orders.length}</span></div>{orders.map((order) => <div className="wish-row" key={String(order.id)}>
+      <div className="wish-info"><div><strong>{order.title}</strong><span>{order.carrier ? `${order.carrier}${order.trackingNumber ? ` · ${order.trackingNumber}` : ''}` : order.error ?? order.retailer}</span></div></div>
+      <span className="wish-price">{order.totalCents ? money.format(Number(order.totalCents) / 100) : money.format(Number(order.priceCents) / 100)}</span>
+      <span className={`badge order-${order.status}`}>{order.status}</span>
+    </div>)}</div>}
   </div></div>;
 }

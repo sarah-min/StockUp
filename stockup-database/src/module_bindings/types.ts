@@ -41,6 +41,15 @@ export const Config = __t.object("Config", {
 });
 export type Config = __Infer<typeof Config>;
 
+export const Credential = __t.object("Credential", {
+  username: __t.string(),
+  userId: __t.u64(),
+  salt: __t.string(),
+  passwordHash: __t.string(),
+  createdAt: __t.timestamp(),
+});
+export type Credential = __Infer<typeof Credential>;
+
 export const MarketPrice = __t.object("MarketPrice", {
   symbol: __t.string(),
   priceCents: __t.u64(),
@@ -53,6 +62,14 @@ export const OrderServer = __t.object("OrderServer", {
   identity: __t.identity(),
 });
 export type OrderServer = __Infer<typeof OrderServer>;
+
+export const Session = __t.object("Session", {
+  identity: __t.identity(),
+  userId: __t.u64(),
+  username: __t.string(),
+  signedInAt: __t.timestamp(),
+});
+export type Session = __Infer<typeof Session>;
 
 export const Trade = __t.object("Trade", {
   id: __t.u64(),

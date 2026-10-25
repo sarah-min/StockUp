@@ -254,6 +254,51 @@ const config = table(
   }
 );
 
+/*
+ * Login credentials. Private: no client can read it.
+ *
+ * The browser never sends the password itself, only a PBKDF2 proof derived from it
+ * (see src/auth/password.ts). The module stores a salted, iterated SHA-256 of that proof.
+ */
+const credential = table(
+  {
+    name: "credential",
+    public: false,
+  },
+  {
+    username: t.string().primaryKey(), // lowercase, [a-z0-9_]{3,20}
+    userId: t.u64().unique(),
+    salt: t.string(),
+    passwordHash: t.string(),
+    createdAt: t.timestamp(),
+  }
+);
+
+/*
+ * Who is signed in on which connection identity. Public so a browser can see its own row
+ * (filter by your identity); it reveals only identity -> username, never credentials.
+ * Kept in step with user_auth by the account reducers.
+ */
+const session = table(
+  {
+    name: "session",
+    public: true,
+    indexes: [
+      {
+        accessor: "session_by_user",
+        algorithm: "btree",
+        columns: ["userId"],
+      },
+    ],
+  },
+  {
+    identity: t.identity().primaryKey(),
+    userId: t.u64(),
+    username: t.string(),
+    signedInAt: t.timestamp(),
+  }
+);
+
 const spacetimedb = schema({
   user,
   userAuth,
@@ -267,6 +312,8 @@ const spacetimedb = schema({
   marketPrice,
   trade,
   config,
+  credential,
+  session,
 });
 
 export default spacetimedb;

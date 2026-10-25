@@ -2,15 +2,21 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
+import { applyTheme, readTheme } from "./ThemeToggle.tsx";
 import WishlistAutoBuy from "./WishlistAutoBuy.tsx";
 import DemoTrader from "./DemoTrader.tsx";
+import AuthGate from "./AuthGate.tsx";
 import { Identity } from "spacetimedb";
 import { SpacetimeDBProvider } from "spacetimedb/react";
 import { DbConnection, ErrorContext, tables } from "./module_bindings/index.ts";
 
+// Apply the saved theme before the first paint so dark mode never flashes white.
+applyTheme(readTheme());
+
 const savedToken = localStorage.getItem("spacetimedb_token");
 
-const HOST = import.meta.env.VITE_SPACETIMEDB_HOST ?? "ws://localhost:3000";
+const HOST =
+  import.meta.env.VITE_SPACETIMEDB_HOST ?? "wss://maincloud.spacetimedb.com";
 const DB_NAME = import.meta.env.VITE_SPACETIMEDB_DB_NAME ?? "stockup-db";
 const TOKEN_KEY = `${HOST}/${DB_NAME}/auth_token`;
 
@@ -31,8 +37,8 @@ const onConnectError = (_ctx: ErrorContext, err: Error) => {
 };
 
 let connectionBuilder = DbConnection.builder()
-  .withUri("wss://maincloud.spacetimedb.com")
-  .withDatabaseName("stockup-db")
+  .withUri(HOST)
+  .withDatabaseName(DB_NAME)
   .withAutomaticReconnect()
   .onConnect((conn, identity, token) => {
     console.log("Connected to SpacetimeDB:", identity.toHexString());
@@ -47,6 +53,7 @@ let connectionBuilder = DbConnection.builder()
         tables.trade,
         tables.agentPosition,
         tables.marketPrice,
+        tables.session,
       ]);
   })
   .onConnectError((_ctx, error) => {
@@ -60,12 +67,18 @@ if (savedToken) {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <SpacetimeDBProvider connectionBuilder={connectionBuilder}>
-      <App />
-      {/* TO_REMOVE: temporary corner panels for demoing the wishlist auto-buy (see DevPanel.tsx) */}
-      <div className="dev-dock">
-        <DemoTrader />
-        <WishlistAutoBuy />
-      </div>
+      <AuthGate>
+        {(account) => (
+          <>
+            <App account={account} />
+            {/* TO_REMOVE: temporary corner panels for demoing the wishlist auto-buy (see DevPanel.tsx) */}
+            <div className="dev-dock">
+              <DemoTrader />
+              <WishlistAutoBuy />
+            </div>
+          </>
+        )}
+      </AuthGate>
     </SpacetimeDBProvider>
   </StrictMode>,
 );
