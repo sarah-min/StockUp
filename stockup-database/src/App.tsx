@@ -108,6 +108,7 @@ function App({ account }: { account?: Account }) {
   const [dbTrades] = useTable(tables.trade);
   const [simulatedTrades] = useTable(tables.simulatedTrade);
   const [wishlistItems] = useTable(tables.wishlistProduct);
+  const [milestoneRows] = useTable(tables.milestone);
   const [loading, setLoading] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
@@ -122,61 +123,33 @@ function App({ account }: { account?: Account }) {
     },
   ]);
   const { identity } = useSpacetimeDB();
-  const createAgent = useReducer(reducers.createAgent);
   const executeSimulatedTrade = useReducer(reducers.executeSimulatedTrade);
   const saveMilestones = useReducer(reducers.saveMilestones);
-  const [agents] = useTable(tables.agent);
   const [sessions] = useTable(tables.session);
   const currentSession = sessions.find(
     (session) => session.identity.toHexString() === identity?.toHexString(),
   );
-  const ownedAgents = agents.filter(
-    (agent) => currentSession && agent.userId === currentSession.userId,
-  );
   const savedWishlist = wishlistItems.filter(
     (item) => currentSession && item.userId === currentSession.userId,
   );
+  // Milestones live across plays: the saved, accepted set is reused until the user regenerates it.
+  const savedMilestones = milestoneRows
+    .filter((row) => currentSession && row.userId === currentSession.userId)
+    .sort(
+      (a, b) => Number(a.targetCents - b.targetCents) || Number(a.id - b.id),
+    );
+  const savedMilestonesAccepted =
+    savedMilestones.length > 0 && savedMilestones.every((row) => row.accepted);
+  const usingSavedMilestones =
+    milestones.length === 0 && savedMilestones.length > 0;
+  const milestonesReady =
+    milestones.length > 0 ? milestonesAccepted : savedMilestonesAccepted;
   const wishlistSummary = savedWishlist
     .map(
       (item) =>
         `${item.title} (${money.format(Number(item.priceCents) / 100)})`,
     )
     .join(", ");
-  const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
-  const [agentsCreated, setAgentsCreated] = useState(false);
-  useEffect(() => {
-    if (
-      (selectedAgentId === null ||
-        !ownedAgents.some((agent) => agent.id === selectedAgentId)) &&
-      ownedAgents.length > 0
-    ) {
-      setSelectedAgentId(ownedAgents[0].id);
-    }
-  }, [ownedAgents, selectedAgentId]);
-
-  async function saveAgents() {
-    if (ownedAgents.length > 0) {
-      setAgentsCreated(true);
-      return;
-    }
-
-    if (!allocationsValid) {
-      setError(allocationError);
-      return;
-    }
-
-    for (const [index, agent] of agentAllocations.entries()) {
-      await createAgent({
-        name: `Agent ${index + 1}`,
-        apiEndpoint: `/api/agents/${identity?.toHexString()}/${index + 1}`,
-        personality: agent.personality,
-        initialBalanceCents: BigInt(Math.round(agent.allocation * 100)),
-      });
-    }
-
-    setAgentsCreated(true);
-  }
-
   useEffect(() => {
     request<Health>("/api/health")
       .then(setHealth)
@@ -199,16 +172,10 @@ function App({ account }: { account?: Account }) {
     setError("");
     setTrade(null);
     setProposalApproved(false);
-    setMilestones([]);
-    setMilestonesAccepted(false);
 
     try {
       if (!allocationsValid) {
         throw new Error(allocationError);
-      }
-
-      if (!agentsCreated) {
-        await saveAgents();
       }
 
       const result = await request<{ proposal: Proposal }>("/api/proposal", {
@@ -271,8 +238,6 @@ function App({ account }: { account?: Account }) {
   );
 
   function updateAgentAllocation(index: number, allocation: number) {
-    setAgentsCreated(false);
-
     setAgentSettings((current) =>
       current.map((agent, currentIndex) =>
         currentIndex === index
@@ -283,8 +248,6 @@ function App({ account }: { account?: Account }) {
   }
 
   function updateAgentPersonality(index: number, personality: string) {
-    setAgentsCreated(false);
-
     setAgentSettings((current) =>
       current.map((agent, currentIndex) =>
         currentIndex === index ? { ...agent, personality } : agent,
@@ -293,12 +256,10 @@ function App({ account }: { account?: Account }) {
   }
 
   function changeAgentCount(next: number) {
-    setAgentsCreated(false);
     setAgentNum(Math.min(MAX_AGENTS, Math.max(1, next)));
   }
 
   function changeBudget(next: number) {
-    setAgentsCreated(false);
     setBudget(Number.isFinite(next) ? next : 0);
   }
 
@@ -317,17 +278,12 @@ function App({ account }: { account?: Account }) {
       setError("Lock in the agent strategy before executing the trade");
       return;
     }
-    if (!milestonesAccepted) {
+    if (!milestonesReady) {
       setError(
         "Generate and accept your wishlist milestones before simulating the trade",
       );
       return;
     }
-    if (selectedAgentId === null) {
-      setError("Select an agent first");
-      return;
-    }
-
     setLoading(true);
     setError("");
 
@@ -345,7 +301,6 @@ function App({ account }: { account?: Account }) {
       const priceCents = BigInt(Math.round(result.trade.price * 100));
       const totalCents = (quantityMicros * priceCents + 999_999n) / 1_000_000n;
       await executeSimulatedTrade({
-        agentId: selectedAgentId,
         side: result.trade.action,
         symbol: result.trade.symbol,
         quantityMicros,
@@ -560,11 +515,11 @@ function App({ account }: { account?: Account }) {
           </div>
           <div>
             <dt>Trades</dt>
-            <dd>{dbTrades.length}</dd>
+            <dd>{visibleSimulatedTrades.length}</dd>
           </div>
           <div>
-            <dt>Agents live</dt>
-            <dd>{ownedAgents.length}</dd>
+            <dt>Agents</dt>
+            <dd>{agentAllocations.length}</dd>
           </div>
         </dl>
       </section>
@@ -995,17 +950,48 @@ function App({ account }: { account?: Account }) {
                   >
                     {loading
                       ? "Planning milestones…"
-                      : milestones.length > 0
+                      : milestones.length > 0 || usingSavedMilestones
                         ? "Regenerate milestones"
                         : "Suggest earning milestones →"}
                   </button>
-                  {milestones.length > 0 &&
-                    isOutOfDate(milestonesSnapshot, savedWishlist) && (
-                      <p className="stale-note">
-                        Your wishlist changed since these were generated.
-                        Regenerate to resize them.
-                      </p>
-                    )}
+                  {usingSavedMilestones && (
+                    <div className="milestone-list">
+                      <span className="milestone-list-heading">
+                        Your milestones ·{" "}
+                        {savedMilestonesAccepted
+                          ? "accepted ✓"
+                          : "not accepted yet"}
+                      </span>
+                      <ul className="wish-summary">
+                        {savedMilestones.map((row) => (
+                          <li key={String(row.id)}>
+                            <span>{row.name}</span>
+                            <strong>{row.target}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                      {!savedMilestonesAccepted && (
+                        <button
+                          className="secondary"
+                          onClick={() => acceptSavedMilestones(savedMilestones)}
+                        >
+                          Accept milestones →
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {(milestones.length > 0
+                    ? isOutOfDate(milestonesSnapshot, savedWishlist)
+                    : usingSavedMilestones &&
+                      isOutOfDate(
+                        savedMilestones[0].wishlistSnapshot,
+                        savedWishlist,
+                      )) && (
+                    <p className="stale-note">
+                      Your wishlist changed since these were generated.
+                      Regenerate to resize them.
+                    </p>
+                  )}
                   {milestones.length > 0 && (
                     <div className="milestone-list">
                       <span className="milestone-list-heading">

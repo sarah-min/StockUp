@@ -11,7 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  agentId: __t.u64(),
   side: __t.string(),
   symbol: __t.string(),
   quantityMicros: __t.u64(),
