@@ -3,7 +3,8 @@
 Built @ CalHacks 13.0
 
 CREAO Track:  
-* Investment Milestone Planner: https://agent.creao.ai/share/d8afac005448d395a41b0e0983777cec
+* Investment Milestone Planner: https://agent.creao.ai/share/d8afac005448d395a41b0e0983777cec, 
+    Agent ID: 59fbfe03-06dc-4add-b42d-c2c6ec377a1b
 
 * Traders:
   * Agrarian Trader: https://agent.creao.ai/share/de4f038a817bcbd8211ef14380752cef,
