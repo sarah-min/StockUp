@@ -5,9 +5,11 @@ import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
 import Purchases from "./Purchases";
 import Milestones from "./Milestones";
+import OpenPositions from "./OpenPositions";
 import { isOutOfDate, snapshotOf } from "./wishlistSnapshot";
 import ThemeToggle from "./ThemeToggle";
 import { useRealizedProfit } from "./realizedProfit";
+import { useRewardSpend } from "./rewardSpend";
 import type { Account } from "./AuthGate";
 
 type AssetType = "crypto" | "stock";
@@ -137,7 +139,12 @@ function App({ account }: { account?: Account }) {
   const [milestonesOpen, setMilestonesOpen] = useState(false);
   const [milestonesSnapshot, setMilestonesSnapshot] = useState("");
   const [error, setError] = useState("");
-  const realizedProfit = useRealizedProfit();
+  const earnedProfit = useRealizedProfit();
+  // Buying a reward spends profit: what's shown is trading profit minus what rewards have cost. Milestones still unlock
+  // on the profit you've earned in total, so spending never pushes you back below a target you already passed.
+  const rewardSpend = useRewardSpend();
+  const realizedProfit =
+    earnedProfit === null ? null : earnedProfit - rewardSpend;
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
     {
       allocation: MIN_AGENT_ALLOCATION,
@@ -508,21 +515,36 @@ function App({ account }: { account?: Account }) {
   };
 
   const generateMilestones = async () => {
-    if (approvedEntries.length === 0 || !wishlistSummary) {
-      setError("Lock in some advice and add something to your Wishlist first");
+    if (!wishlistSummary) {
+      setError("Add something to your Wishlist first");
       return;
     }
-    // The milestone agent plans around the whole locked-in round.
-    const symbols = [...new Set(approvedEntries.map((e) => e.advice!.symbol))];
-    const proposal = {
-      ...approvedEntries[0].advice!,
-      symbol: symbols[0],
-      amount_usd:
-        Math.round(
-          (approvedBuyUsd > 0 ? approvedBuyUsd : approvedSellUsd) * 100,
-        ) / 100,
-      recommendations: symbols,
-    };
+    // The milestone agent plans around the whole locked-in round. Without one (after a reload, say) it falls back to
+    // the budget and the assets the player has already traded, so milestones can still be regenerated.
+    const symbols =
+      approvedEntries.length > 0
+        ? [...new Set(approvedEntries.map((e) => e.advice!.symbol))]
+        : [...new Set(visibleSimulatedTrades.map((item) => item.symbol))].slice(
+            0,
+            5,
+          );
+    const proposal =
+      approvedEntries.length > 0
+        ? {
+            ...approvedEntries[0].advice!,
+            symbol: symbols[0],
+            amount_usd:
+              Math.round(
+                (approvedBuyUsd > 0 ? approvedBuyUsd : approvedSellUsd) * 100,
+              ) / 100,
+            recommendations: symbols,
+          }
+        : {
+            symbol: symbols[0] ?? "a mix of crypto and stocks",
+            amount_usd: budget,
+            recommendations:
+              symbols.length > 0 ? symbols : ["a mix of crypto and stocks"],
+          };
     const snapshotNow = snapshotOf(savedWishlist);
     setPlanning(true);
     setError("");
@@ -645,7 +667,9 @@ function App({ account }: { account?: Account }) {
         </div>
         <dl className="scoreboard">
           <div>
-            <dt>Realized P/L</dt>
+            <dt title="Profit from your trades, minus what you've spent on rewards">
+              Realized P/L
+            </dt>
             <dd
               className={
                 realizedProfit === null
@@ -1423,6 +1447,8 @@ function App({ account }: { account?: Account }) {
         </div>
       )}
 
+      <OpenPositions />
+
       <section className="card history">
         <div className="card-head row">
           <h2>Recent trades</h2>
@@ -1478,7 +1504,7 @@ function App({ account }: { account?: Account }) {
       {milestonesOpen && (
         <Milestones
           onClose={() => setMilestonesOpen(false)}
-          canRegenerate={approvedEntries.length > 0 && savedWishlist.length > 0}
+          canRegenerate={savedWishlist.length > 0}
           regenerating={planning}
           error={error}
           onRegenerate={generateMilestones}

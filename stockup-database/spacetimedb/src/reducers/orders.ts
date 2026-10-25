@@ -2,7 +2,7 @@ import { t } from "spacetimedb";
 import { SenderError } from "spacetimedb/server";
 import spacetimedb from "..";
 import { requireCurrentUser } from "../helpers/auth";
-import { realizedProfitCents } from "../helpers/profit";
+import { realizedProfitCents, requireAffordable } from "../helpers/profit";
 
 const ORDER_SERVER_ID = 0n;
 const SERVER_STATUSES = ["placing", "placed", "delivered", "failed"];
@@ -48,6 +48,8 @@ export const beginPurchase = spacetimedb.reducer(
         "Your realized profit hasn't reached this target yet",
       );
     }
+
+    requireAffordable(ctx, currentUser.id, item.priceCents);
 
     ctx.db.wishlistProduct.id.delete(productId);
     ctx.db.wishlistOrder.insert({
@@ -98,7 +100,8 @@ export const beginMilestonePurchase = spacetimedb.reducer(
 
     // Only this user's own realized profit can unlock their reward.
     if (
-      BigInt(realizedProfitCents(ctx, currentUser.id)) < milestone.targetCents
+      BigInt(realizedProfitCents(ctx, currentUser.id)) - milestone.baselineCents <
+      milestone.targetCents
     ) {
       throw new SenderError(
         "Your realized profit hasn't reached this milestone yet",
@@ -118,6 +121,8 @@ export const beginMilestonePurchase = spacetimedb.reducer(
     if (!cheapest) {
       throw new SenderError("Your wishlist is empty");
     }
+
+    requireAffordable(ctx, currentUser.id, cheapest.priceCents);
 
     ctx.db.milestone.id.update({ ...milestone, reached: true });
     ctx.db.wishlistProduct.id.delete(cheapest.id);
@@ -141,6 +146,23 @@ export const beginMilestonePurchase = spacetimedb.reducer(
       createdAt: ctx.timestamp,
       updatedAt: ctx.timestamp,
     });
+  },
+);
+
+// Maintenance, order server only: deletes a player's finished (delivered or failed) reward orders, e.g. to wipe test
+// purchases so they stop counting against the player's profit.
+export const clearFinishedOrders = spacetimedb.reducer(
+  { userId: t.u64() },
+  (ctx, { userId }) => {
+    requireOrderServer(ctx);
+
+    for (const order of Array.from(
+      ctx.db.wishlistOrder.wishlist_order_by_user.filter(userId),
+    )) {
+      if (FINAL_STATUSES.includes(order.status)) {
+        ctx.db.wishlistOrder.id.delete(order.id);
+      }
+    }
   },
 );
 

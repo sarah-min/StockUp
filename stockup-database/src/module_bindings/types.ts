@@ -68,6 +68,7 @@ export const Milestone = __t.object("Milestone", {
   createdAt: __t.timestamp(),
   reached: __t.bool(),
   wishlistSnapshot: __t.string(),
+  baselineCents: __t.i64(),
 });
 export type Milestone = __Infer<typeof Milestone>;
 

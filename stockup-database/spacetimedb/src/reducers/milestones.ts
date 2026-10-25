@@ -2,6 +2,7 @@ import { t } from "spacetimedb";
 import { SenderError } from "spacetimedb/server";
 import spacetimedb from "..";
 import { requireCurrentUser } from "../helpers/auth";
+import { realizedProfitCents } from "../helpers/profit";
 
 const MAX_MILESTONES = 10;
 
@@ -53,11 +54,12 @@ export const saveMilestones = spacetimedb.reducer(
       ctx.db.milestone.milestone_by_user.filter(currentUser.id)
     );
 
-    // Regenerating must not make already-rewarded profit buy again: targets at or below the highest
-    // milestone that already fired count as reached.
-    const highestReached = previous
-      .filter((old) => old.reached)
-      .reduce((max, old) => (old.targetCents > max ? old.targetCents : max), 0n);
+    // A freshly generated set starts counting from the profit the player has right now. Accepting (or editing and
+    // re-accepting) the current set keeps its starting point and any milestone that already fired.
+    const keepProgress = accepted && previous.length > 0;
+    const baselineCents = keepProgress
+      ? previous[0].baselineCents
+      : BigInt(realizedProfitCents(ctx, currentUser.id));
 
     for (const old of previous) {
       ctx.db.milestone.id.delete(old.id);
@@ -73,7 +75,12 @@ export const saveMilestones = spacetimedb.reducer(
         rationale: row.rationale,
         accepted,
         createdAt: ctx.timestamp,
-        reached: row.targetCents <= highestReached,
+        reached: keepProgress
+          ? previous.some(
+              (old) => old.reached && old.targetCents === row.targetCents
+            )
+          : false,
+        baselineCents,
         wishlistSnapshot,
       });
     }

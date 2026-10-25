@@ -349,6 +349,9 @@ const milestone = table(
     reached: t.bool().default(false),
     // Ids of the wishlist items these milestones were generated for (comma-separated); empty for older rows.
     wishlistSnapshot: t.string().default(""),
+    // The player's realized profit (cents) when these milestones were generated. Targets count from there, so a
+    // regenerated set starts at zero progress. Older rows have 0.
+    baselineCents: t.i64().default(0n),
   }
 );
 
