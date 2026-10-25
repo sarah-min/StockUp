@@ -25,13 +25,18 @@ export const saveMilestones = spacetimedb.reducer(
     names: t.array(t.string()),
     targets: t.array(t.string()),
     rationales: t.array(t.string()),
+    productIds: t.array(t.u64()), // the wishlist item each milestone unlocks (0 = none)
     accepted: t.bool(),
     wishlistSnapshot: t.string(),
   },
-  (ctx, { names, targets, rationales, accepted, wishlistSnapshot }) => {
+  (ctx, { names, targets, rationales, productIds, accepted, wishlistSnapshot }) => {
     const currentUser = requireCurrentUser(ctx);
 
-    if (targets.length !== names.length || rationales.length !== names.length) {
+    if (
+      targets.length !== names.length ||
+      rationales.length !== names.length ||
+      productIds.length !== names.length
+    ) {
       throw new SenderError("Milestone lists must be the same length");
     }
 
@@ -43,6 +48,7 @@ export const saveMilestones = spacetimedb.reducer(
       name: name.trim(),
       target: targets[index],
       rationale: rationales[index],
+      productId: productIds[index],
       targetCents: dollarsToCents(targets[index]),
     }));
 
@@ -81,6 +87,7 @@ export const saveMilestones = spacetimedb.reducer(
             )
           : false,
         baselineCents,
+        productId: row.productId,
         wishlistSnapshot,
       });
     }

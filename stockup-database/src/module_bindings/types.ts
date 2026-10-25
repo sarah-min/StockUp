@@ -69,6 +69,7 @@ export const Milestone = __t.object("Milestone", {
   reached: __t.bool(),
   wishlistSnapshot: __t.string(),
   baselineCents: __t.i64(),
+  productId: __t.u64(),
 });
 export type Milestone = __Infer<typeof Milestone>;
 

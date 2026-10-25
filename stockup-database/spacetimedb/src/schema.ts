@@ -352,6 +352,8 @@ const milestone = table(
     // The player's realized profit (cents) when these milestones were generated. Targets count from there, so a
     // regenerated set starts at zero progress. Older rows have 0.
     baselineCents: t.i64().default(0n),
+    // The wishlist item this milestone unlocks (0 = none; auto-buy then falls back to the cheapest item).
+    productId: t.u64().default(0n),
   }
 );
 

@@ -2116,3 +2116,13 @@ footer {
   text-transform: uppercase;
   vertical-align: middle;
 }
+
+.milestone-item {
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.milestone-content > .milestone-item {
+  display: block;
+  margin-bottom: 4px;
+}

@@ -35,7 +35,7 @@ function loadSettings() {
 // Rendered next to <App /> (inside the SpacetimeDB provider) so it keeps running while the wishlist modal is closed.
 export default function WishlistAutoBuy() {
   const { isActive, getConnection } = useSpacetimeDB();
-  const [rows] = useTable(tables.wishlistProduct);
+  const [rows, rowsReady] = useTable(tables.wishlistProduct);
   const [milestoneRows] = useTable(tables.milestone);
   const myUserId = useMyUserId();
   const spent = useRewardSpend();
@@ -108,21 +108,26 @@ export default function WishlistAutoBuy() {
     if (accepted.length === 0) return;
     const milestone = nextMilestone;
     const key = milestone ? `m${milestone.id}` : "";
+    // The item this milestone unlocks. A milestone with no item (none linked, or it was removed) just completes.
+    const target = milestone
+      ? items.find((entry) => entry.id === milestone.productId)
+      : undefined;
     if (
       !settings.enabled ||
       !isActive ||
       !milestone ||
-      items.length === 0 ||
+      !rowsReady || // don't decide an item is missing before the wishlist has loaded
       value === null ||
-      value - Number(milestone.baselineCents) / 100 < Number(milestone.targetCents) / 100 ||
+      value - Number(milestone.baselineCents) / 100 <
+        Number(milestone.targetCents) / 100 ||
       busy.current ||
       failed.current.has(key) ||
-      value - spent < Number(worstCaseCents(items[0].priceCents)) / 100
+      (target &&
+        value - spent < Number(worstCaseCents(target.priceCents)) / 100)
     )
       return; // wait until the profit left covers the item's worst-case cost
     busy.current = true;
     const conn = getConnection() as DbConnection | null;
-    const cheapest = items[0];
     void (async () => {
       try {
         await conn?.reducers.beginMilestonePurchase({
@@ -131,10 +136,14 @@ export default function WishlistAutoBuy() {
         toast(
           "good",
           `OMG! Milestone reached: ${milestone.name} (${milestone.target} profit) 🎉`,
-          `Buying "${cheapest.title}" from your wishlist…`,
+          target
+            ? `Buying "${target.title}" from your wishlist…`
+            : "Milestone completed.",
         );
       } catch (err) {
-        failed.current.add(key);
+        // Not having enough profit yet is not a failure: stay eligible and retry as profit grows.
+        if (!(err instanceof Error && /not enough profit/i.test(err.message)))
+          failed.current.add(key);
         // Another tab got there first; that is exactly what the once-only guard is for.
         if (!(
           err instanceof Error && /already reached|not found/i.test(err.message)
@@ -149,7 +158,15 @@ export default function WishlistAutoBuy() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, spent, settings.enabled, isActive, rows.length, milestoneRows]);
+  }, [
+    value,
+    spent,
+    settings.enabled,
+    isActive,
+    rows.length,
+    rowsReady,
+    milestoneRows,
+  ]);
 
   useEffect(() => {
     if (accepted.length > 0) return;

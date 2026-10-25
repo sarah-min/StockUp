@@ -355,7 +355,8 @@ function profitTarget(raw, invested) {
   return dollars > 0 ? `$${Number(dollars.toFixed(2))}` : null;
 }
 
-function normalizeMilestones(value, wishlist, proposal) {
+// items: the player's wishlist items cheapest first ({ id, title, price_cents }); the i-th milestone unlocks the i-th item.
+function normalizeMilestones(value, wishlist, proposal, items = []) {
   const raw = value.milestones || value.milestone || value.thresholds || value.goals || [];
   const entries = Array.isArray(raw)
     ? raw
@@ -366,6 +367,7 @@ function normalizeMilestones(value, wishlist, proposal) {
       name: String(item.name || item.title || item.goal || `Milestone ${index + 1}`),
       target: profitTarget(item.target_profit_usd ?? item.target ?? item.profit_target ?? item.profitTarget ?? item.threshold ?? item.value, proposal.amount_usd),
       rationale: String(item.rationale || item.reason || item.description || item.why || ''),
+      product_id: items[index]?.id ?? null,
     };
   }).filter((item) => item.name && item.target);
   if (milestones.length === 0) console.warn('Milestone agent returned nothing usable:', JSON.stringify(value).slice(0, 600));
@@ -377,21 +379,21 @@ function normalizeMilestones(value, wishlist, proposal) {
   };
 }
 
-async function runMilestones(wishlist, proposal) {
+async function runMilestones(wishlist, proposal, items = []) {
   if (!CREAO_API_KEY) {
     const base = proposal.amount_usd;
-    return normalizeMilestones({ milestones: [10, 25, 50].map((pct, index) => ({ name: `Demo milestone ${index + 1}`, target_profit_usd: (base * pct) / 100, rationale: 'Demo suggestion: add CREAO_API_KEY for milestones based on your wishlist.' })) }, wishlist, proposal);
+    return normalizeMilestones({ milestones: [10, 25, 50].map((pct, index) => ({ name: `Demo milestone ${index + 1}`, target_profit_usd: (base * pct) / 100, rationale: 'Demo suggestion: add CREAO_API_KEY for milestones based on your wishlist.' })) }, wishlist, proposal, items);
   }
   // The agent occasionally answers in prose; try once more before giving up so the user never sees non-numeric targets.
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const result = await runMilestonesOnce(wishlist, proposal);
+    const result = await runMilestonesOnce(wishlist, proposal, items);
     if (result.milestones.length > 0) return result;
   }
   throw new Error('The milestone agent did not return numeric profit targets. Please try again.');
 }
 
-async function runMilestonesOnce(wishlist, proposal) {
-  const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target_profit_usd":0,"rationale":"..."}]}. Include 3 milestones. Targets are cumulative: each one is the total profit earned so far, not extra profit after the previous one. Shipping, taxes and fees are added at checkout, so a wishlist item can really cost up to about 15% more than its listed price plus $6 of shipping. Each target must cover the combined worst-case cost (listed price x 1.15 + $6 each) of the wishlist items bought up to that point, cheapest first, plus a small buffer, so the player is never out of pocket after reaching it. target_profit_usd must be a plain number of US dollars of realized PROFIT to earn (the gain, not the total portfolio value), never words, never a percentage. State in each rationale that it is a suggestion only, not a guarantee or financial advice.`;
+async function runMilestonesOnce(wishlist, proposal, items = []) {
+  const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target_profit_usd":0,"rationale":"..."}]}. Each milestone unlocks exactly one wishlist item. Items, cheapest first: ${items.length ? items.map((item, index) => `${index + 1}. ${item.title} ($${(item.price_cents / 100).toFixed(2)})`).join('; ') : 'none listed'}. Return exactly ${items.length || 3} milestones, in that order: milestone 1 unlocks item 1, milestone 2 unlocks item 2, and so on; name each milestone after its item. Targets are cumulative: each one is the total profit earned so far, not extra profit after the previous one. Shipping, taxes and fees are added at checkout, so a wishlist item can really cost up to about 15% more than its listed price plus $6 of shipping. Each target must cover the combined worst-case cost (listed price x 1.15 + $6 each) of its item and the items before it, plus a small buffer, so the player is never out of pocket after reaching it. target_profit_usd must be a plain number of US dollars of realized PROFIT to earn (the gain, not the total portfolio value), never words, never a percentage. State in each rationale that it is a suggestion only, not a guarantee or financial advice.`;
   const startUrl = `https://agent.creao.ai/api/v1/apps/${CREAO_MILESTONE_AGENT_ID}/runs`;
   const start = await fetch(startUrl, {
     method: 'POST',
@@ -418,7 +420,7 @@ async function runMilestonesOnce(wishlist, proposal) {
     const result = await response.json();
     if (result.status === 'failed' || result.status === 'cancelled') throw new Error(`CREAO milestone run ${result.status}`);
     if (result.status === 'completed' || result.status === 'succeeded' || result.status === 'success') {
-      return normalizeMilestones(await extractAgentResult(result), wishlist, proposal);
+      return normalizeMilestones(await extractAgentResult(result), wishlist, proposal, items);
     }
   }
   throw new Error('CREAO milestone run timed out');
@@ -517,7 +519,12 @@ async function zincSearch(query) {
   if (!ZINC_API_KEY) throw new Error('ZINC_API_KEY is not set. Mint a sandbox key with: curl -X POST https://api.zinc.com/sandbox/keys');
   const response = await fetch(`https://api.zinc.com/search?${new URLSearchParams({ q: query, limit: '12' })}`, { headers: { Authorization: `Bearer ${ZINC_API_KEY}` } });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || data.error || `Zinc search failed (${response.status})`);
+  if (!response.ok) {
+    // Zinc sends errors as { error: { code, message } } or { message }; never stringify the object itself.
+    const detail = data.error?.message || data.message || (typeof data.error === 'string' ? data.error : '');
+    const hint = response.status === 401 || response.status === 403 ? ' Check that ZINC_API_KEY in .env is a valid Zinc key (make a sandbox one with: curl -X POST https://api.zinc.com/sandbox/keys).' : '';
+    throw new Error(`Zinc search failed (${response.status})${detail ? `: ${detail}` : ''}.${hint}`);
+  }
   return (data.results || []).filter((item) => item.url && item.available !== false).map((item) => ({ url: item.url, retailer: item.retailer, title: item.title, image: item.image, brand: item.brand, price_cents: item.price, stars: item.stars }));
 }
 
@@ -691,7 +698,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/api/health') { const creao = await creaoHealth(); return json(response, 200, { ok: true, mode: 'paper', creaoConfigured: creao.configured, creaoError: creao.error, coinbase: COINBASE_AGENT_MODE === 'public' ? 'public-market-api' : 'agent-cli-when-configured', coinbaseAgentMode: COINBASE_AGENT_MODE, stockQuotes: 'coinbase-equities-when-configured-with-nasdaq-fallback' }); }
     if (request.method === 'GET' && request.url === '/api/trades') return json(response, 200, { trades });
     if (request.method === 'POST' && request.url === '/api/proposal') { const { budget = 100, assetType = 'crypto', investmentType = 'personality-1', agent } = await body(request); const market = assetType === 'stock' ? 'stock' : 'crypto'; if (agent) return json(response, 200, { proposal: await adviseAgent(agent, market) }); return json(response, 200, { proposal: await runCreaoForAsset(Number(budget), market, investmentType) }); }
-    if (request.method === 'POST' && request.url === '/api/milestones') { const { wishlist = '', proposal } = await body(request); if (!String(wishlist).trim() || !proposal) throw new Error('Wishlist and approved proposal are required'); return json(response, 200, { milestones: await runMilestones(String(wishlist).trim(), proposal) }); }
+    if (request.method === 'POST' && request.url === '/api/milestones') { const { wishlist = '', proposal, items = [] } = await body(request); if (!String(wishlist).trim() || !proposal) throw new Error('Wishlist and approved proposal are required'); return json(response, 200, { milestones: await runMilestones(String(wishlist).trim(), proposal, Array.isArray(items) ? items : []) }); }
     if (request.method === 'POST' && request.url === '/api/simulate') { const { proposal, demo_price: demoPrice } = await body(request); const validated = validateProposal(proposal, Number(proposal.amount_usd), proposal.asset_type); const quote = Number(demoPrice) > 0 ? { price: Number(demoPrice), source: 'manual-demo-price' } : validated.asset_type === 'stock' ? await stockPrice(validated.symbol) : await coinbasePrice(validated.symbol); const productId = productIdFor(validated.symbol, validated.asset_type); const preview = await coinbasePreview({ productId, assetType: validated.asset_type, action: validated.action, amountUsd: validated.amount_usd, price: quote.price }); const trade = { ...validated, id: randomUUID(), price: quote.price, quantity: validated.amount_usd / quote.price, simulated: true, createdAt: new Date().toISOString(), coinbase: { product_id: productId, price_source: quote.source, preview_status: preview.status, preview_source: preview.source } }; trades.unshift(trade); return json(response, 200, { trade, preview }); }
     if (request.method === 'GET' && request.url.startsWith('/api/wishlist/search')) { const q = new URL(request.url, 'http://localhost').searchParams.get('q')?.trim(); if (!q) throw new Error('Enter something to search for'); return json(response, 200, { results: await zincSearch(q), sandbox: ZINC_API_KEY?.startsWith('zn_test_') ?? false }); }
     if (request.method === 'GET' && request.url.startsWith('/api/quote')) { const symbol = (new URL(request.url, 'http://localhost').searchParams.get('symbol') || '').trim().toUpperCase(); if (!symbol) throw new Error('Symbol is required'); const quote = symbol.includes('-') ? await coinbasePrice(symbol) : await stockPrice(symbol); return json(response, 200, { symbol, price: quote.price, source: quote.source }); }

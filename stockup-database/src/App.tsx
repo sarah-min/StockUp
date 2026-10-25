@@ -99,6 +99,7 @@ type Milestone = {
   name: string;
   target: string;
   rationale: string;
+  productId?: bigint; // the wishlist item this milestone unlocks (0 or missing = none)
 };
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -518,6 +519,7 @@ function App({ account }: { account?: Account }) {
         names: items.map((item) => item.name),
         targets: items.map((item) => item.target),
         rationales: items.map((item) => item.rationale),
+        productIds: items.map((item) => item.productId ?? 0n),
         accepted,
         wishlistSnapshot: snapshot,
       });
@@ -585,12 +587,27 @@ function App({ account }: { account?: Account }) {
           body: JSON.stringify({
             wishlist: `${wishlistSummary}. Shipping and taxes are not included in these prices yet.`,
             proposal,
+            items: [...savedWishlist]
+              .sort(
+                (a, b) =>
+                  Number(a.priceCents - b.priceCents) || Number(a.id - b.id),
+              )
+              .map((item) => ({
+                id: Number(item.id),
+                title: item.title,
+                price_cents: Number(item.priceCents),
+              })),
           }),
         },
       );
-      setMilestones(result.milestones.milestones);
+      const generated = result.milestones.milestones.map((m) => {
+        const raw = (m as Milestone & { product_id?: number | null })
+          .product_id;
+        return { ...m, productId: raw != null ? BigInt(raw) : 0n };
+      });
+      setMilestones(generated);
       setMilestonesSnapshot(snapshotNow);
-      void persistMilestones(result.milestones.milestones, false, snapshotNow);
+      void persistMilestones(generated, false, snapshotNow);
     } catch (error) {
       setError(
         error instanceof Error
@@ -1262,7 +1279,22 @@ function App({ account }: { account?: Account }) {
                       <ul className="wish-summary">
                         {savedMilestones.map((row) => (
                           <li key={String(row.id)}>
-                            <span>{row.name}</span>
+                            <span>
+                              {row.name}
+                              {savedWishlist.find(
+                                (item) => item.id === row.productId,
+                              ) && (
+                                <small className="milestone-item">
+                                  {" "}
+                                  · unlocks{" "}
+                                  {
+                                    savedWishlist.find(
+                                      (item) => item.id === row.productId,
+                                    )?.title
+                                  }
+                                </small>
+                              )}
+                            </span>
                             <strong>{row.target}</strong>
                           </li>
                         ))}
@@ -1301,6 +1333,18 @@ function App({ account }: { account?: Account }) {
                         >
                           <span className="milestone-number">{index + 1}</span>
                           <div className="milestone-content">
+                            {savedWishlist.find(
+                              (item) => item.id === milestone.productId,
+                            ) && (
+                              <span className="milestone-item">
+                                Unlocks{" "}
+                                {
+                                  savedWishlist.find(
+                                    (item) => item.id === milestone.productId,
+                                  )?.title
+                                }
+                              </span>
+                            )}
                             <div className="milestone-fields">
                               <label>
                                 <span>Milestone</span>

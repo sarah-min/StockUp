@@ -22,4 +22,5 @@ export default __t.row({
   reached: __t.bool(),
   wishlistSnapshot: __t.string().name("wishlist_snapshot"),
   baselineCents: __t.i64().name("baseline_cents"),
+  productId: __t.u64().name("product_id"),
 });

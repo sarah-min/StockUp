@@ -58,6 +58,10 @@ let connectionBuilder = DbConnection.builder()
         tables.marketPrice,
         tables.session,
         tables.wishlistProduct,
+        // Rewards and milestones feed the scoreboard (reward spend) and auto-buy, so they load up front instead of
+        // only once a pop-up that reads them is opened.
+        tables.wishlistOrder,
+        tables.milestone,
       ]);
   })
   .onConnectError((_ctx, error) => {

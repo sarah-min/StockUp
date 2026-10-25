@@ -75,7 +75,7 @@ export const beginPurchase = spacetimedb.reducer(
   },
 );
 
-// Auto-buy for a milestone: marks the milestone reached and turns the user's cheapest wishlist item into a pending order,
+// Auto-buy for a milestone: marks the milestone reached and, if it has a wishlist item, turns that item into a pending order,
 // all in one transaction, so a milestone can fire only once even if two tabs race. The client checks the profit
 // from the user's own trades; this reducer re-checks that profit and guards ownership, acceptance and the once-only rule.
 export const beginMilestonePurchase = spacetimedb.reducer(
@@ -108,7 +108,7 @@ export const beginMilestonePurchase = spacetimedb.reducer(
       );
     }
 
-    const cheapest = Array.from(
+    const wishlist = Array.from(
       ctx.db.wishlistProduct.wishlist_product_by_user.filter(currentUser.id),
     ).sort((a, b) =>
       a.priceCents === b.priceCents
@@ -116,25 +116,30 @@ export const beginMilestonePurchase = spacetimedb.reducer(
         : a.priceCents < b.priceCents
           ? -1
           : 1,
-    )[0];
+    );
 
-    if (!cheapest) {
-      throw new SenderError("Your wishlist is empty");
+    // Each milestone unlocks its own item. A milestone with no item (none was linked, or it was removed from the
+    // wishlist since) is simply completed: it counts as reached and nothing is bought.
+    const chosen = wishlist.find((item) => item.id === milestone.productId);
+
+    if (!chosen) {
+      ctx.db.milestone.id.update({ ...milestone, reached: true });
+      return;
     }
 
-    requireAffordable(ctx, currentUser.id, cheapest.priceCents);
+    requireAffordable(ctx, currentUser.id, chosen.priceCents);
 
     ctx.db.milestone.id.update({ ...milestone, reached: true });
-    ctx.db.wishlistProduct.id.delete(cheapest.id);
+    ctx.db.wishlistProduct.id.delete(chosen.id);
     ctx.db.wishlistOrder.insert({
       id: 0n,
       owner: ctx.sender,
       userId: currentUser.id,
       thresholdCents: milestone.targetCents,
-      url: cheapest.url,
-      retailer: cheapest.retailer,
-      title: cheapest.title,
-      priceCents: cheapest.priceCents,
+      url: chosen.url,
+      retailer: chosen.retailer,
+      title: chosen.title,
+      priceCents: chosen.priceCents,
       status: "pending",
       zincOrderId: undefined,
       totalCents: undefined,

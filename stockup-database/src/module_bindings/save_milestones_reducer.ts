@@ -14,6 +14,7 @@ export default {
   names: __t.array(__t.string()),
   targets: __t.array(__t.string()),
   rationales: __t.array(__t.string()),
+  productIds: __t.array(__t.u64()),
   accepted: __t.bool(),
   wishlistSnapshot: __t.string(),
 };
