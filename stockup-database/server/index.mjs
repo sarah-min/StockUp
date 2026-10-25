@@ -331,7 +331,12 @@ function finalizeAdvice(raw, { agent, assetType, cash, holdings, source, traderN
     return { ...base, action: 'hold', symbol: '', asset_type: assetType, amount_usd: 0, confidence: 0.5, risk: 'low', rationale: 'Out of cash for new buys this round.', recommendations: [] };
   }
   const normalized = normalizeTraderResult(raw, Math.min(25, cash), assetType, traderName || 'demo');
-  return { ...base, ...validateProposal({ ...normalized, action: 'buy' }, cash, assetType) };
+  // An agent never spends more than its share of the budget: cap what CREAO asked for at the agent's cash.
+  const requested = Number(normalized.amount_usd);
+  const amount = Number.isFinite(requested) && requested > 0 ? Math.min(requested, cash) : Math.min(25, cash);
+  const capped = Number.isFinite(requested) && requested > cash;
+  const proposal = validateProposal({ ...normalized, action: 'buy', amount_usd: amount }, cash, assetType);
+  return { ...base, ...proposal, ...(capped ? { requested_usd: roundCents(requested) } : {}) };
 }
 
 async function adviseAgent(agent, assetType) {
