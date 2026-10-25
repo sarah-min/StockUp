@@ -208,6 +208,26 @@ const agentPosition = table(
   }
 );
 
+const simulatedPosition = table(
+  {
+    name: "simulated_position",
+    public: true,
+    indexes: [
+      {
+        accessor: "simulated_positions_by_agent",
+        algorithm: "btree",
+        columns: ["agentId"],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    agentId: t.u64(),
+    symbol: t.string(),
+    quantityMicros: t.u64(),
+  }
+);
+
 const marketPrice = table(
   {
     name: "market_price",
@@ -252,6 +272,37 @@ const trade = table(
     side: t.string(),
     symbol: t.string(),
     quantity: t.u64(),
+    priceCents: t.u64(),
+    totalCents: t.u64(),
+    executedAt: t.timestamp(),
+  }
+);
+
+const simulatedTrade = table(
+  {
+    name: "simulated_trade",
+    public: true,
+    indexes: [
+      {
+        accessor: "simulated_trades_by_user",
+        algorithm: "btree",
+        columns: ["userId"],
+      },
+      {
+        accessor: "simulated_trades_by_agent",
+        algorithm: "btree",
+        columns: ["agentId"],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    userId: t.u64(),
+    agentId: t.u64(),
+    marketUserId: t.u64(),
+    side: t.string(),
+    symbol: t.string(),
+    quantityMicros: t.u64(),
     priceCents: t.u64(),
     totalCents: t.u64(),
     executedAt: t.timestamp(),
@@ -324,8 +375,10 @@ const spacetimedb = schema({
   wishlistOrder,
   orderServer,
   agentPosition,
+  simulatedPosition,
   marketPrice,
   trade,
+  simulatedTrade,
   config,
   credential,
   session,

@@ -1,3 +1,5 @@
+const QUANTITY_SCALE = 1_000_000n;
+
 function getUserHoldings(ctx: any, userId: bigint) {
   const holdings = new Map<
     string,
@@ -21,13 +23,15 @@ function getUserHoldings(ctx: any, userId: bigint) {
 
       if (existing) {
         existing.quantity += position.quantity;
-        existing.valueCents = existing.quantity * price;
+        existing.valueCents =
+          (existing.quantity * price) / QUANTITY_SCALE;
       } else {
         holdings.set(position.symbol, {
           symbol: position.symbol,
           quantity: position.quantity,
           priceCents: price,
-          valueCents: BigInt(position.quantity) * BigInt(price),
+          valueCents:
+            (BigInt(position.quantity) * BigInt(price)) / QUANTITY_SCALE,
         });
       }
     }

@@ -58,4 +58,4 @@ Restart `npm run api`. The dashboard will change from `CREAO demo mode` to `CREA
 4. Confirm the footer and ledger say that no live order was sent.
 5. With a real CREAO key, confirm the CREAO run appears in the CREAO dashboard and the UI says `CREAO API connected`.
 
-The server intentionally keeps trades in memory for this first vertical slice. SpacetimeDB can become the durable ledger after the external API flow is proven.
+Completed simulations are also recorded in SpacetimeDB. The durable simulated ledger uses fixed-point quantities (`quantityMicros`, one-millionth of a unit), so fractional crypto and stock quantities are preserved without changing the existing whole-share ledger. The Maincloud module must be published with the updated schema before deployed clients can use the new reducer.
