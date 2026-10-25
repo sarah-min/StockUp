@@ -9,4 +9,5 @@ spacetime.local.json
 .env
 .env.local
 
+# Order-server login token (a secret; created by server/index.mjs)
 .stockup-server-token
