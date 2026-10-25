@@ -19,6 +19,27 @@ const STOCK_PRICE_API_KEY = process.env.STOCK_PRICE_API_KEY || 'demo';
 const COINBASE_AGENT_MODE = process.env.COINBASE_AGENT_MODE || 'auto';
 const COINBASE_CLI_BIN = process.env.COINBASE_CLI_BIN || 'coinbase';
 const CREAO_IS_APP_KEY = CREAO_API_KEY?.startsWith('capi_');
+// A capi_ key from an agent's page in agent.creao.ai runs ONLY that agent (anything else is APP_SCOPE_RESTRICTED),
+// so each agent can have its own key. CREAO_API_KEY is the fallback for agents without one.
+const CREAO_AGENT_KEYS = {
+  agrarian: process.env.CREAO_AGRI_API_KEY,
+  artist: process.env.CREAO_ARTIST_API_KEY,
+  realist: process.env.CREAO_REALIST_API_KEY,
+  milestone: process.env.CREAO_MILESTONE_API_KEY,
+};
+const CREAO_KEY_ENV = { agrarian: 'CREAO_AGRI_API_KEY', artist: 'CREAO_ARTIST_API_KEY', realist: 'CREAO_REALIST_API_KEY', milestone: 'CREAO_MILESTONE_API_KEY' };
+const creaoKeyFor = (slot) => CREAO_AGENT_KEYS[slot] || CREAO_API_KEY;
+const anyCreaoKey = () => Boolean(CREAO_API_KEY || Object.values(CREAO_AGENT_KEYS).some(Boolean));
+
+// Turn a failed CREAO start into a message that says which agent and which key to fix.
+function creaoStartError(detail, status, label, slot) {
+  const code = detail?.error || detail?.code || '';
+  if (code === 'APP_SCOPE_RESTRICTED' || /scope/i.test(String(detail?.message || ''))) {
+    return new Error(`APP_SCOPE_RESTRICTED: this CREAO key can't run the ${label}. App keys (capi_) only run the agent they were created on, so create one on the ${label}'s page in agent.creao.ai and set ${CREAO_KEY_ENV[slot]} in .env.`);
+  }
+  if (code === 'AUTHENTICATION_REQUIRED') return new Error(`CREAO rejected the key for the ${label} (AUTHENTICATION_REQUIRED). Check ${CREAO_KEY_ENV[slot]} or CREAO_API_KEY in .env.`);
+  return new Error(detail?.message || code || `CREAO start failed for the ${label} (${status})`);
+}
 const CREAO_RUNS_URL = process.env.CREAO_RUNS_URL || (CREAO_IS_APP_KEY ? 'https://agent.creao.ai/api/v1/runs' : 'https://developer.creao.ai/v2/runs');
 const ZINC_API_KEY = process.env.ZINC_API_KEY;
 const trades = [];
@@ -30,8 +51,8 @@ function json(res, status, body) {
 }
 
 async function creaoHealth() {
-  if (!CREAO_API_KEY) return { configured: false, error: null };
-  if (CREAO_IS_APP_KEY) return { configured: true, error: null };
+  if (!anyCreaoKey()) return { configured: false, error: null };
+  if (!CREAO_API_KEY || CREAO_IS_APP_KEY) return { configured: true, error: null };
   const response = await fetch('https://developer.creao.ai/v2/me', { headers: { Authorization: `Bearer ${CREAO_API_KEY}` } });
   if (response.ok) return { configured: true, error: null };
   const detail = await response.json().catch(() => ({}));
@@ -88,7 +109,7 @@ function findStructuredResult(value, depth = 0) {
   return null;
 }
 
-async function extractAgentResult(result) {
+async function extractAgentResult(result, key = CREAO_API_KEY) {
   const structured = findStructuredResult(result);
   if (structured) return structured;
   const candidates = [
@@ -112,7 +133,7 @@ async function extractAgentResult(result) {
     const artifactUrl = typeof artifact === 'string' ? artifact : artifact?.url;
     if (!artifactUrl) continue;
     const response = await fetch(artifactUrl, {
-      headers: { Authorization: `Bearer ${CREAO_API_KEY}` },
+      headers: { Authorization: `Bearer ${key}` },
     });
     if (response.ok) {
       const contentType = response.headers.get('content-type') || '';
@@ -205,25 +226,28 @@ function validateProposal(value, budget, assetType = value.asset_type || 'crypto
 }
 
 const TRADERS = {
-  'personality-1': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
-  'agrarian-trader': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
-  'personality-2': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader' },
-  'artist-trader': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader' },
-  'personality-3': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader' },
-  'realist-trader': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader' },
+  'personality-1': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader', slot: 'agrarian' },
+  'agrarian-trader': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader', slot: 'agrarian' },
+  'personality-2': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader', slot: 'artist' },
+  'artist-trader': { id: CREAO_ARTIST_AGENT_ID, version: CREAO_ARTIST_AGENT_VERSION, name: 'artist-trader', slot: 'artist' },
+  'personality-3': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader', slot: 'realist' },
+  'realist-trader': { id: CREAO_REALIST_AGENT_ID, version: CREAO_REALIST_AGENT_VERSION, name: 'realist-trader', slot: 'realist' },
 };
 
 // Start one CREAO trader run with this prompt and return the agent's structured result.
 async function runTraderAgent(trader, prompt) {
   const appId = trader.id;
-  const startUrl = CREAO_IS_APP_KEY ? `https://agent.creao.ai/api/v1/apps/${encodeURIComponent(appId)}/runs` : CREAO_RUNS_URL;
-  const startBody = CREAO_IS_APP_KEY
+  const key = creaoKeyFor(trader.slot);
+  const isAppKey = key?.startsWith('capi_');
+  const label = `${trader.name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}`;
+  const startUrl = isAppKey ? `https://agent.creao.ai/api/v1/apps/${encodeURIComponent(appId)}/runs` : CREAO_RUNS_URL;
+  const startBody = isAppKey
     ? { inputs: { prompt } }
     : { agent_id: appId, input: { prompt } };
-  const start = await fetch(startUrl, { method: 'POST', headers: { Authorization: `Bearer ${CREAO_API_KEY}` }, body: JSON.stringify(startBody) });
+  const start = await fetch(startUrl, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(startBody) });
   if (!start.ok) {
     const detail = await start.json().catch(() => ({}));
-    throw new Error(detail.message || detail.error || `CREAO start failed (${start.status})`);
+    throw creaoStartError(detail, start.status, label, trader.slot);
   }
   const run = await start.json();
   const runId = run.run_id || run.id;
@@ -233,25 +257,29 @@ async function runTraderAgent(trader, prompt) {
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollDelay));
     pollDelay = Math.min(Math.round(pollDelay * 1.3), 5000);
-    const pollUrl = `${CREAO_RUNS_URL}/${runId}`;
-    const response = await fetch(pollUrl, { headers: { Authorization: `Bearer ${CREAO_API_KEY}` } });
+    // App keys poll their run under the app they belong to (agent.creao.ai/api/v1/apps/{appId}/runs/{runId}).
+    const pollUrl = isAppKey
+      ? `https://agent.creao.ai/api/v1/apps/${encodeURIComponent(appId)}/runs/${runId}`
+      : `${CREAO_RUNS_URL}/${runId}`;
+    const response = await fetch(pollUrl, { headers: { Authorization: `Bearer ${key}` } });
     if (response.status === 429) {
       await new Promise((resolve) => setTimeout(resolve, 5000));
       continue;
     }
-    if (!response.ok) throw new Error(`CREAO polling failed (${response.status})`);
+    if (!response.ok) throw new Error(`CREAO polling failed for the ${label} (${response.status})`);
     const result = await response.json();
-    if (result.status === 'failed' || result.status === 'cancelled') throw new Error(`CREAO run ${result.status}`);
+    if (result.status === 'failed' || result.status === 'cancelled') throw new Error(`CREAO run ${result.status} (${label})`);
     if (result.status === 'completed' || result.status === 'succeeded' || result.status === 'success') {
-      return extractAgentResult(result);
+      return extractAgentResult(result, key);
     }
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-  throw new Error('CREAO run timed out');
+  throw new Error(`CREAO run timed out (${label})`);
 }
 
 async function runCreaoForAsset(budget, assetType, investmentType = 'personality-1') {
-  if (!CREAO_API_KEY) return { ...validateProposal({ symbol: assetType === 'stock' ? 'AAPL' : 'BTC-USD', action: 'buy', amount_usd: Math.min(25, budget), confidence: 0.62, rationale: 'Demo proposal: add CREAO_API_KEY to run the real strategy agent.', risk: 'high' }, budget, assetType), source: 'demo' };
+  const selected = TRADERS[investmentType] || TRADERS['personality-1'];
+  if (!creaoKeyFor(selected.slot)) return { ...validateProposal({ symbol: assetType === 'stock' ? 'AAPL' : 'BTC-USD', action: 'buy', amount_usd: Math.min(25, budget), confidence: 0.62, rationale: 'Demo proposal: add CREAO_API_KEY to run the real strategy agent.', risk: 'high' }, budget, assetType), source: 'demo' };
   const trader = TRADERS[investmentType] || TRADERS['personality-1'];
   const prompt = `For a paper-trading proposal, return exactly one JSON object listing the stocks or crypto assets that your ${trader.name} strategy typically picks. The requested asset class is ${assetType === 'stock' ? 'US stocks' : 'crypto pairs'}, and the paper budget is $${budget}. Use only ${assetType === 'stock' ? 'US tickers such as AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, NFLX, AMD, or IBM' : 'Coinbase-supported pairs such as BTC-USD, ETH-USD, SOL-USD, DOGE-USD, or XRP-USD'}. Required fields: recommended_assets (array of symbols), symbol (the first recommendation), action, amount_usd, confidence, rationale, risk. Do not place an order or use real money.`;
   const agentResult = await runTraderAgent(trader, prompt);
@@ -337,8 +365,8 @@ function finalizeAdvice(raw, { agent, assetType, cash, holdings, source, traderN
 async function adviseAgent(agent, assetType) {
   const cash = Math.max(0, roundCents(Number(agent.cash_usd) || 0));
   const holdings = await priceHoldings(agent.holdings);
-  if (!CREAO_API_KEY) return finalizeAdvice(demoAdvice(agent, assetType, cash, holdings), { agent, assetType, cash, holdings, source: 'demo' });
   const trader = TRADERS[agent.personality] || TRADERS['personality-1'];
+  if (!creaoKeyFor(trader.slot)) return finalizeAdvice(demoAdvice(agent, assetType, cash, holdings), { agent, assetType, cash, holdings, source: 'demo' });
   const result = await runTraderAgent(trader, advicePrompt(trader, assetType, cash, holdings));
   return finalizeAdvice(result, { agent, assetType, cash, holdings, source: 'creao', traderName: trader.name });
 }
@@ -380,7 +408,7 @@ function normalizeMilestones(value, wishlist, proposal, items = []) {
 }
 
 async function runMilestones(wishlist, proposal, items = []) {
-  if (!CREAO_API_KEY) {
+  if (!creaoKeyFor('milestone')) {
     const base = proposal.amount_usd;
     return normalizeMilestones({ milestones: [10, 25, 50].map((pct, index) => ({ name: `Demo milestone ${index + 1}`, target_profit_usd: (base * pct) / 100, rationale: 'Demo suggestion: add CREAO_API_KEY for milestones based on your wishlist.' })) }, wishlist, proposal, items);
   }
@@ -394,15 +422,16 @@ async function runMilestones(wishlist, proposal, items = []) {
 
 async function runMilestonesOnce(wishlist, proposal, items = []) {
   const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target_profit_usd":0,"rationale":"..."}]}. Each milestone unlocks exactly one wishlist item. Items, cheapest first: ${items.length ? items.map((item, index) => `${index + 1}. ${item.title} ($${(item.price_cents / 100).toFixed(2)})`).join('; ') : 'none listed'}. Return exactly ${items.length || 3} milestones, in that order: milestone 1 unlocks item 1, milestone 2 unlocks item 2, and so on; name each milestone after its item. Targets are cumulative: each one is the total profit earned so far, not extra profit after the previous one. Shipping, taxes and fees are added at checkout, so a wishlist item can really cost up to about 15% more than its listed price plus $6 of shipping. Each target must cover the combined worst-case cost (listed price x 1.15 + $6 each) of its item and the items before it, plus a small buffer, so the player is never out of pocket after reaching it. target_profit_usd must be a plain number of US dollars of realized PROFIT to earn (the gain, not the total portfolio value), never words, never a percentage. State in each rationale that it is a suggestion only, not a guarantee or financial advice.`;
+  const key = creaoKeyFor('milestone');
   const startUrl = `https://agent.creao.ai/api/v1/apps/${CREAO_MILESTONE_AGENT_ID}/runs`;
   const start = await fetch(startUrl, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${CREAO_API_KEY}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ inputs: { prompt } }),
   });
   if (!start.ok) {
     const detail = await start.json().catch(() => ({}));
-    throw new Error(detail.message || detail.error || `CREAO milestone start failed (${start.status})`);
+    throw creaoStartError(detail, start.status, 'Investment Milestone Planner', 'milestone');
   }
   const run = await start.json();
   const runId = run.run_id || run.id;
@@ -412,15 +441,15 @@ async function runMilestonesOnce(wishlist, proposal, items = []) {
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollDelay));
     pollDelay = Math.min(Math.round(pollDelay * 1.3), 5000);
-    const response = await fetch(`https://agent.creao.ai/api/v1/runs/${runId}`, {
-      headers: { Authorization: `Bearer ${CREAO_API_KEY}` },
+    const response = await fetch(`https://agent.creao.ai/api/v1/apps/${CREAO_MILESTONE_AGENT_ID}/runs/${runId}`, {
+      headers: { Authorization: `Bearer ${key}` },
     });
     if (response.status === 429) continue;
     if (!response.ok) throw new Error(`CREAO milestone polling failed (${response.status})`);
     const result = await response.json();
     if (result.status === 'failed' || result.status === 'cancelled') throw new Error(`CREAO milestone run ${result.status}`);
     if (result.status === 'completed' || result.status === 'succeeded' || result.status === 'success') {
-      return normalizeMilestones(await extractAgentResult(result), wishlist, proposal, items);
+      return normalizeMilestones(await extractAgentResult(result, key), wishlist, proposal, items);
     }
   }
   throw new Error('CREAO milestone run timed out');
