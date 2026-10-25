@@ -2,11 +2,15 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
+import { applyTheme, readTheme } from "./ThemeToggle.tsx";
 import WishlistAutoBuy from "./WishlistAutoBuy.tsx";
 import DemoTrader from "./DemoTrader.tsx";
 import { Identity } from "spacetimedb";
 import { SpacetimeDBProvider } from "spacetimedb/react";
 import { DbConnection, ErrorContext, tables } from "./module_bindings/index.ts";
+
+// Apply the saved theme before the first paint so dark mode never flashes white.
+applyTheme(readTheme());
 
 const savedToken = localStorage.getItem("spacetimedb_token");
 

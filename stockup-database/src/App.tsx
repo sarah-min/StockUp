@@ -3,6 +3,7 @@ import "./App.css";
 import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
+import ThemeToggle from "./ThemeToggle";
 
 type AssetType = "crypto" | "stock";
 type Proposal = {
@@ -42,6 +43,26 @@ type AgentSettings = {
   personality: string;
 };
 const MIN_AGENT_ALLOCATION = 1; // dollars every agent must get
+const MAX_AGENTS = 10;
+const BUDGET_PRESETS = [50, 100, 500, 1000];
+const PERSONALITIES = [
+  { value: "personality-1", label: "Personality 1" },
+  { value: "personality-2", label: "Personality 2" },
+  { value: "personality-3", label: "Personality 3" },
+];
+// One stable colour per agent slot, reused by the split bar and the agent cards.
+const AGENT_COLORS = [
+  "#2563eb",
+  "#16a34a",
+  "#d97706",
+  "#9333ea",
+  "#db2777",
+  "#0891b2",
+  "#65a30d",
+  "#e11d48",
+  "#4f46e5",
+  "#0d9488",
+];
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -58,6 +79,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return body;
 }
 
+function Spinner() {
+  return <span className="spinner" aria-hidden="true" />;
+}
+
 function App() {
   const [budget, setBudget] = useState(100);
   const [agentNum, setAgentNum] = useState(1);
@@ -69,6 +94,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [error, setError] = useState("");
+  const [realizedProfit, setRealizedProfit] = useState<number | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
     {
       allocation: MIN_AGENT_ALLOCATION,
@@ -134,6 +160,17 @@ function App() {
     request<Health>("/api/health")
       .then(setHealth)
       .catch(() => setHealth(null));
+  }, []);
+
+  // Scoreboard: realized paper profit, refreshed in the background.
+  useEffect(() => {
+    const load = () =>
+      request<{ realized_profit: number }>("/api/portfolio")
+        .then((result) => setRealizedProfit(result.realized_profit))
+        .catch(() => undefined);
+    void load();
+    const timer = setInterval(load, 10_000);
+    return () => clearInterval(timer);
   }, []);
 
   const generateProposal = async () => {
@@ -230,6 +267,22 @@ function App() {
     );
   }
 
+  function changeAgentCount(next: number) {
+    setAgentsCreated(false);
+    setAgentNum(Math.min(MAX_AGENTS, Math.max(1, next)));
+  }
+
+  function changeBudget(next: number) {
+    setAgentsCreated(false);
+    setBudget(Number.isFinite(next) ? next : 0);
+  }
+
+  function chooseAsset(next: AssetType) {
+    setAssetType(next);
+    setProposal(null);
+    setTrade(null);
+  }
+
   const simulateTrade = async () => {
     if (!proposal || selectedAgentId === null) {
       setError("Select an agent first");
@@ -267,242 +320,514 @@ function App() {
     }
   };
 
+  const step = trade ? 3 : proposal ? 2 : 1;
+  const steps = ["Set your play", "Agent pitch", "Paper ledger"];
+  const sortedTrades = [...dbTrades].sort(
+    (a, b) =>
+      Number(b.executedAt.microsSinceUnixEpoch) -
+      Number(a.executedAt.microsSinceUnixEpoch),
+  );
+  const sliderMax = Math.max(1000, budget);
+  const confidencePct = proposal ? Math.round(proposal.confidence * 100) : 0;
+
   return (
     <main className="shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">↗</span> StockUp
+          <span className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path
+                d="M4 17l5-5 4 4 7-8"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          StockUp
         </div>
-        <button className="wish-open" onClick={() => setWishlistOpen(true)}>
-          ♡ Wishlist
-        </button>
-        <div className="mode-pill">
-          <span className="dot" /> SIMULATION MODE
+        <span className="mode-pill">
+          <span className="live-dot" /> Simulation
+        </span>
+        <div className="topbar-actions">
+          <button
+            className="ghost-button"
+            onClick={() => setWishlistOpen(true)}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                d="M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Wishlist
+          </button>
+          <ThemeToggle />
         </div>
       </header>
-      <section className="hero">
+
+      <section className="intro">
         <div>
-          <p className="eyebrow">CREAO × COINBASE FOR AGENTS</p>
           <h1>
-            Let an agent make the pitch.
-            <br />
-            <em>You make the call.</em>
+            Let an agent make the pitch. <span>You make the call.</span>
           </h1>
-          <p className="hero-copy">
-            CREAO generates a strategy. Coinbase checks the product and market
-            when the agent CLI is connected, then StockUp previews and records
-            the trade without sending a live order.
+          <p className="intro-copy">
+            Set a paper budget, deploy your agents and review their trade. Every
+            fill is simulated, so no real money ever moves.
           </p>
         </div>
-        <div className="hero-badge">
-          ✦
-          <span>
-            Agent
-            <br />
-            trade preview
-          </span>
-        </div>
+        <dl className="scoreboard">
+          <div>
+            <dt>Realized P/L</dt>
+            <dd
+              className={
+                realizedProfit === null
+                  ? ""
+                  : realizedProfit >= 0
+                    ? "positive"
+                    : "negative"
+              }
+            >
+              {realizedProfit === null ? "—" : money.format(realizedProfit)}
+            </dd>
+          </div>
+          <div>
+            <dt>Paper trades</dt>
+            <dd>{dbTrades.length}</dd>
+          </div>
+          <div>
+            <dt>Agents live</dt>
+            <dd>{agents.length}</dd>
+          </div>
+        </dl>
       </section>
-      <section className="workspace">
-        <div className="card setup-card">
-          <div className="card-label">01 / SET YOUR PLAY</div>
-          <label>Asset class</label>
-          <div className="asset-toggle" role="group" aria-label="Asset class">
-            <button
-              className={assetType === "crypto" ? "selected" : ""}
-              onClick={() => {
-                setAssetType("crypto");
-                setProposal(null);
-              }}
+
+      <ol className="stepper" aria-label="Progress">
+        {steps.map((label, index) => {
+          const number = index + 1;
+          const state =
+            number < step ? "done" : number === step ? "active" : "upcoming";
+          return (
+            <li
+              key={label}
+              className={`step step-${state}`}
+              aria-current={state === "active" ? "step" : undefined}
             >
-              Crypto
-            </button>
-            <button
-              className={assetType === "stock" ? "selected" : ""}
-              onClick={() => {
-                setAssetType("stock");
-                setProposal(null);
-              }}
-            >
-              Stocks
-            </button>
-          </div>
-          <label htmlFor="budget">Paper budget</label>
-          <div className="budget-input">
-            <span>$</span>
-            <input
-              id="budget"
-              type="number"
-              min="5"
-              max="10000"
-              value={budget}
-              onChange={(event) => setBudget(Number(event.target.value))}
-            />
-          </div>
-          <label htmlFor="agent_num">Number of Agents</label>
-          <div className="budget-input">
-            <span></span>
-            <input
-              id="agent_num"
-              type="number"
-              min="1"
-              max="10"
-              value={agentNum}
-              onChange={(event) => setAgentNum(Number(event.target.value))}
-            />
-          </div>
-
-          <div className="agent-allocations">
-            <h3>Configure your agents</h3>
-
-            <div className="agent-allocation-grid">
-              {agentAllocations.map((agent, index) => (
-                <div className="agent-allocation-card" key={index}>
-                  <label htmlFor={`agent-${index}-allocation`}>
-                    Agent {index + 1}
-                    {index === lastAgentIndex && agentAllocations.length > 1
-                      ? " (rest)"
-                      : ""}
-                  </label>
-
-                  <div className="agent-allocation-input">
-                    <span>$</span>
-
-                    <input
-                      id={`agent-${index}-allocation`}
-                      type="number"
-                      min="0"
-                      max={budget}
-                      step="1"
-                      readOnly={
-                        index === lastAgentIndex && agentAllocations.length > 1
-                      }
-                      value={agent.allocation === 0 ? "" : agent.allocation}
-                      onChange={(event) =>
-                        updateAgentAllocation(index, Number(event.target.value))
-                      }
+              <span className="step-index">
+                {state === "done" ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="12"
+                    height="12"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M5 12.5l4.5 4.5L19 7.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     />
-                  </div>
+                  </svg>
+                ) : (
+                  number
+                )}
+              </span>
+              <span className="step-label">{label}</span>
+            </li>
+          );
+        })}
+      </ol>
 
-                  <label
-                    className="personality-label"
-                    htmlFor={`agent-${index}-personality`}
-                  >
-                    Investment Type
-                  </label>
+      <section className="workspace">
+        <div className={`card setup-card ${step === 1 ? "is-active" : ""}`}>
+          <div className="card-head">
+            <span className="card-kicker">Step 1</span>
+            <h2>Set your play</h2>
+          </div>
 
-                  <select
-                    id={`agent-${index}-personality`}
-                    className="personality-select"
-                    value={agent.personality}
-                    onChange={(event) =>
-                      updateAgentPersonality(index, event.target.value)
-                    }
-                  >
-                    <option value="personality-1">Personality 1</option>
-                    <option value="personality-2">Personality 2</option>
-                    <option value="personality-3">Personality 3</option>
-                  </select>
-                </div>
+          <div className="field">
+            <span className="field-label" id="asset-label">
+              Market
+            </span>
+            <div
+              className="segmented"
+              role="group"
+              aria-labelledby="asset-label"
+            >
+              <button
+                className={assetType === "crypto" ? "selected" : ""}
+                aria-pressed={assetType === "crypto"}
+                onClick={() => chooseAsset("crypto")}
+              >
+                Crypto
+              </button>
+              <button
+                className={assetType === "stock" ? "selected" : ""}
+                aria-pressed={assetType === "stock"}
+                onClick={() => chooseAsset("stock")}
+              >
+                Stocks
+              </button>
+            </div>
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="budget">
+              Paper budget
+            </label>
+            <div className="amount-input">
+              <span>$</span>
+              <input
+                id="budget"
+                type="number"
+                min="5"
+                max="10000"
+                value={budget}
+                onChange={(event) => changeBudget(Number(event.target.value))}
+              />
+            </div>
+            <input
+              className="range"
+              type="range"
+              min="5"
+              max={sliderMax}
+              step="5"
+              value={budget}
+              aria-label="Budget slider"
+              onChange={(event) => changeBudget(Number(event.target.value))}
+              style={
+                {
+                  "--fill": `${(Math.min(budget, sliderMax) / sliderMax) * 100}%`,
+                } as React.CSSProperties
+              }
+            />
+            <div className="chips">
+              {BUDGET_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  className={`chip ${budget === preset ? "selected" : ""}`}
+                  onClick={() => changeBudget(preset)}
+                >
+                  ${preset.toLocaleString()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="field-row">
+              <label className="field-label" htmlFor="agent_num">
+                Agents
+              </label>
+              <div className="stepper-input">
+                <button
+                  aria-label="Remove an agent"
+                  disabled={agentNum <= 1}
+                  onClick={() => changeAgentCount(agentNum - 1)}
+                >
+                  −
+                </button>
+                <input
+                  id="agent_num"
+                  type="number"
+                  min="1"
+                  max={MAX_AGENTS}
+                  value={agentNum}
+                  onChange={(event) =>
+                    changeAgentCount(Number(event.target.value) || 1)
+                  }
+                />
+                <button
+                  aria-label="Add an agent"
+                  disabled={agentNum >= MAX_AGENTS}
+                  onClick={() => changeAgentCount(agentNum + 1)}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div className="split-bar" aria-hidden="true">
+              {agentAllocations.map((agent, index) => (
+                <i
+                  key={index}
+                  style={{
+                    flexGrow: Math.max(agent.allocation, 0),
+                    background: AGENT_COLORS[index % AGENT_COLORS.length],
+                  }}
+                />
               ))}
             </div>
 
+            <div className="agent-list">
+              {agentAllocations.map((agent, index) => {
+                const isRest =
+                  index === lastAgentIndex && agentAllocations.length > 1;
+                const color = AGENT_COLORS[index % AGENT_COLORS.length];
+                const short = agent.allocation < MIN_AGENT_ALLOCATION;
+                return (
+                  <div
+                    className={`agent-card ${short ? "is-short" : ""}`}
+                    key={index}
+                  >
+                    <div className="agent-top">
+                      <span
+                        className="agent-avatar"
+                        style={{ background: color }}
+                        aria-hidden="true"
+                      >
+                        {index + 1}
+                      </span>
+                      <label
+                        className="agent-name"
+                        htmlFor={`agent-${index}-allocation`}
+                      >
+                        Agent {index + 1}
+                        {isRest && <em> · gets the rest</em>}
+                      </label>
+                      <div className="agent-amount">
+                        <span>$</span>
+                        <input
+                          id={`agent-${index}-allocation`}
+                          type="number"
+                          min="0"
+                          max={budget}
+                          step="1"
+                          readOnly={isRest}
+                          value={agent.allocation === 0 ? "" : agent.allocation}
+                          onChange={(event) =>
+                            updateAgentAllocation(
+                              index,
+                              Number(event.target.value),
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                    {!isRest && agentAllocations.length > 1 && (
+                      <input
+                        className="range range-sm"
+                        type="range"
+                        min="0"
+                        max={Math.max(budget, 1)}
+                        step="1"
+                        value={Math.min(agent.allocation, budget)}
+                        aria-label={`Agent ${index + 1} allocation slider`}
+                        onChange={(event) =>
+                          updateAgentAllocation(
+                            index,
+                            Number(event.target.value),
+                          )
+                        }
+                        style={
+                          {
+                            "--fill": `${(Math.min(agent.allocation, budget) / Math.max(budget, 1)) * 100}%`,
+                            "--thumb": color,
+                          } as React.CSSProperties
+                        }
+                      />
+                    )}
+                    <div
+                      className="personality"
+                      role="radiogroup"
+                      aria-label={`Agent ${index + 1} investment type`}
+                    >
+                      {PERSONALITIES.map((option, optionIndex) => (
+                        <button
+                          key={option.value}
+                          role="radio"
+                          aria-checked={agent.personality === option.value}
+                          aria-label={option.label}
+                          title={option.label}
+                          className={
+                            agent.personality === option.value ? "selected" : ""
+                          }
+                          onClick={() =>
+                            updateAgentPersonality(index, option.value)
+                          }
+                        >
+                          Type {optionIndex + 1}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
             {!allocationsValid && (
-              <p className="budget-error">{allocationError}</p>
+              <p className="inline-error" role="alert">
+                {allocationError}
+              </p>
             )}
           </div>
 
           <p className="helper">
-            The agent will propose a{" "}
+            Agents propose a{" "}
             {assetType === "crypto"
               ? "Coinbase-supported crypto asset"
               : "Coinbase-eligible US equity"}{" "}
-            and never exceed this amount.
+            and never exceed your budget.
           </p>
           <button
             className="primary"
             onClick={generateProposal}
             disabled={loading || budget <= 0 || !allocationsValid}
           >
-            {loading ? "Running CREAO…" : "Generate strategy →"}
+            {loading && !proposal ? (
+              <>
+                <Spinner /> Running CREAO…
+              </>
+            ) : (
+              <>
+                {proposal ? "Generate a new strategy" : "Generate strategy"} →
+              </>
+            )}
           </button>
           <div className="integration-status">
-            <span
-              className={
-                health?.creaoConfigured ? "status-dot good" : "status-dot"
-              }
-            />{" "}
-            {health?.creaoConfigured
-              ? "CREAO API connected"
-              : health?.creaoError
-                ? "CREAO key needs attention"
-                : "CREAO demo mode"}
-            <span className="status-separator">·</span>
-            <span className="status-dot good" /> Coinbase{" "}
-            {health?.coinbaseAgentMode === "auto"
-              ? "agent path enabled"
-              : "public market mode"}
+            <span>
+              <span
+                className={
+                  health?.creaoConfigured ? "status-dot good" : "status-dot"
+                }
+              />
+              {health?.creaoConfigured
+                ? "CREAO connected"
+                : health?.creaoError
+                  ? "CREAO key needs attention"
+                  : "CREAO demo mode"}
+            </span>
+            <span>
+              <span className="status-dot good" />
+              Coinbase{" "}
+              {health?.coinbaseAgentMode === "auto"
+                ? "agent path"
+                : "public market"}
+            </span>
           </div>
         </div>
-        <div className="card proposal-card">
-          <div className="card-label">02 / AGENT PROPOSAL</div>
+
+        <div className={`card proposal-card ${step === 2 ? "is-active" : ""}`}>
+          <div className="card-head">
+            <span className="card-kicker">Step 2</span>
+            <h2>Agent pitch</h2>
+          </div>
           {!proposal ? (
             <div className="empty-state">
-              <div className="empty-icon">◎</div>
-              <p>Your agent’s next move will appear here.</p>
-              <span>Click “Generate strategy” to start.</span>
+              <div className="empty-art" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+              <p>Your agent’s next move appears here.</p>
+              <span>Set your play, then generate a strategy.</span>
             </div>
           ) : (
-            <>
+            <div
+              className="reveal"
+              key={`${proposal.symbol}-${proposal.amount_usd}-${proposal.confidence}`}
+            >
               <div className="proposal-heading">
                 <div>
                   <span className="asset-symbol">{proposal.symbol}</span>
                   <span className="asset-type">
                     {proposal.asset_type === "crypto"
-                      ? "CRYPTO / SPOT"
-                      : "US EQUITY / STOCK"}
+                      ? "Crypto · spot"
+                      : "US equity · stock"}
                   </span>
                 </div>
-                <span className={`risk risk-${proposal.risk}`}>
+                <span className={`badge risk-${proposal.risk}`}>
                   {proposal.risk} risk
                 </span>
               </div>
               <div className="proposal-number">
-                {proposal.action.toUpperCase()}{" "}
+                <span className={`side side-${proposal.action}`}>
+                  {proposal.action}
+                </span>
                 <strong>{money.format(proposal.amount_usd)}</strong>
               </div>
               <div className="confidence">
-                <span>Confidence</span>
-                <div className="confidence-bar">
-                  <i style={{ width: `${proposal.confidence * 100}%` }} />
+                <div className="confidence-head">
+                  <span>Confidence</span>
+                  <strong>{confidencePct}%</strong>
                 </div>
-                <strong>{Math.round(proposal.confidence * 100)}%</strong>
+                <div className="meter">
+                  <i style={{ width: `${confidencePct}%` }} />
+                </div>
               </div>
-              <p className="rationale">“{proposal.rationale}”</p>
-              <button
-                className="secondary"
-                onClick={simulateTrade}
-                disabled={loading}
-              >
-                {loading
-                  ? `Getting ${proposal.asset_type === "crypto" ? "Coinbase" : "stock"} price…`
-                  : "Simulate this trade →"}
-              </button>
-            </>
+              <blockquote className="rationale">
+                {proposal.rationale}
+              </blockquote>
+              <div className="button-row">
+                <button
+                  className="primary"
+                  onClick={simulateTrade}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Spinner /> Getting{" "}
+                      {proposal.asset_type === "crypto" ? "Coinbase" : "stock"}{" "}
+                      price…
+                    </>
+                  ) : (
+                    "Simulate this trade →"
+                  )}
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setProposal(null);
+                    setTrade(null);
+                    setError("");
+                  }}
+                  disabled={loading}
+                >
+                  Pass
+                </button>
+              </div>
+            </div>
           )}
         </div>
-        <div className="card result-card">
-          <div className="card-label">03 / PAPER LEDGER</div>
+
+        <div className={`card result-card ${step === 3 ? "is-active" : ""}`}>
+          <div className="card-head">
+            <span className="card-kicker">Step 3</span>
+            <h2>Paper ledger</h2>
+          </div>
           {!trade ? (
             <div className="empty-state">
-              <div className="empty-icon">◌</div>
+              <div className="empty-art empty-art-ledger" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
               <p>No position yet.</p>
               <span>Nothing touches your Coinbase account.</span>
             </div>
           ) : (
-            <>
+            <div className="reveal">
               <div className="fill-banner">
-                <span className="status-dot good" /> Simulated fill recorded
+                <span className="check-badge" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <path
+                      d="M5 12.5l4.5 4.5L19 7.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                Simulated fill recorded
               </div>
               <div className="trade-grid">
                 <div>
@@ -522,47 +847,72 @@ function App() {
                   <strong>{money.format(trade.amount_usd)}</strong>
                 </div>
               </div>
-              <div className="safe-note">
-                ✓ Coinbase product: {trade.coinbase?.product_id || trade.symbol}
-                <br />✓ Price source:{" "}
-                {trade.coinbase?.price_source || "paper quote"}
-                <br />✓ Preview:{" "}
-                {trade.coinbase?.preview_status || "paper-only"}
-                <br />✓ No order was sent to Coinbase
-                <br />✓ No money moved
-              </div>
-            </>
+              <ul className="safe-note">
+                <li>
+                  Coinbase product: {trade.coinbase?.product_id || trade.symbol}
+                </li>
+                <li>
+                  Price source: {trade.coinbase?.price_source || "paper quote"}
+                </li>
+                <li>
+                  Preview: {trade.coinbase?.preview_status || "paper-only"}
+                </li>
+                <li>No order was sent to Coinbase</li>
+                <li>No money moved</li>
+              </ul>
+              <button
+                className="secondary full"
+                onClick={() => {
+                  setProposal(null);
+                  setTrade(null);
+                }}
+              >
+                Play another round
+              </button>
+            </div>
           )}
         </div>
       </section>
-      {error && <div className="error">{error}</div>}
-      <section className="history card">
-        <div className="card-label">RECENT PAPER TRADES</div>
-        {dbTrades.length === 0 ? (
+
+      {error && (
+        <div className="error" role="alert">
+          <span>{error}</span>
+          <button onClick={() => setError("")} aria-label="Dismiss error">
+            ×
+          </button>
+        </div>
+      )}
+
+      <section className="card history">
+        <div className="card-head row">
+          <h2>Recent paper trades</h2>
+          <span className="count">{dbTrades.length}</span>
+        </div>
+        {sortedTrades.length === 0 ? (
           <p className="history-empty">
             Your simulated trades will show up here.
           </p>
         ) : (
-          [...dbTrades]
-            .sort(
-              (a, b) =>
-                Number(b.executedAt.microsSinceUnixEpoch) -
-                Number(a.executedAt.microsSinceUnixEpoch),
-            )
-            .map((item) => (
-              <div className="history-row" key={item.id.toString()}>
+          <div className="table">
+            <div className="table-row table-head">
+              <span>Asset</span>
+              <span>Side</span>
+              <span>Total</span>
+              <span>Price</span>
+              <span>Quantity</span>
+            </div>
+            {sortedTrades.map((item) => (
+              <div className="table-row" key={item.id.toString()}>
                 <strong>{item.symbol}</strong>
-
                 <span>
-                  {item.side.toUpperCase()}{" "}
-                  {money.format(Number(item.totalCents) / 100)}
+                  <span className={`side side-${item.side}`}>{item.side}</span>
                 </span>
-
+                <span>{money.format(Number(item.totalCents) / 100)}</span>
                 <span>@ {money.format(Number(item.priceCents) / 100)}</span>
-
                 <span>{item.quantity.toString()} shares</span>
               </div>
-            ))
+            ))}
+          </div>
         )}
       </section>
       {wishlistOpen && <Wishlist onClose={() => setWishlistOpen(false)} />}
