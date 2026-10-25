@@ -7,6 +7,7 @@ import Purchases from "./Purchases";
 import Milestones from "./Milestones";
 import { isOutOfDate, snapshotOf } from "./wishlistSnapshot";
 import ThemeToggle from "./ThemeToggle";
+import { useRealizedProfit } from "./realizedProfit";
 import type { Account } from "./AuthGate";
 
 type AssetType = "crypto" | "stock";
@@ -115,7 +116,7 @@ function App({ account }: { account?: Account }) {
   const [milestonesOpen, setMilestonesOpen] = useState(false);
   const [milestonesSnapshot, setMilestonesSnapshot] = useState("");
   const [error, setError] = useState("");
-  const [realizedProfit, setRealizedProfit] = useState<number | null>(null);
+  const realizedProfit = useRealizedProfit();
   const [agentSettings, setAgentSettings] = useState<AgentSettings[]>([
     {
       allocation: MIN_AGENT_ALLOCATION,
@@ -154,17 +155,6 @@ function App({ account }: { account?: Account }) {
     request<Health>("/api/health")
       .then(setHealth)
       .catch(() => setHealth(null));
-  }, []);
-
-  // Scoreboard: realized paper profit, refreshed in the background.
-  useEffect(() => {
-    const load = () =>
-      request<{ realized_profit: number }>("/api/portfolio")
-        .then((result) => setRealizedProfit(result.realized_profit))
-        .catch(() => undefined);
-    void load();
-    const timer = setInterval(load, 10_000);
-    return () => clearInterval(timer);
   }, []);
 
   const generateProposal = async () => {

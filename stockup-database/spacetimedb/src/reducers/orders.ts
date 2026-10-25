@@ -2,6 +2,7 @@ import { t } from "spacetimedb";
 import { SenderError } from "spacetimedb/server";
 import spacetimedb from "..";
 import { requireCurrentUser } from "../helpers/auth";
+import { realizedProfitCents } from "../helpers/profit";
 
 const ORDER_SERVER_ID = 0n;
 const SERVER_STATUSES = ["placing", "placed", "delivered", "failed"];
@@ -41,6 +42,13 @@ export const beginPurchase = spacetimedb.reducer(
       throw new SenderError("Wishlist item not found");
     }
 
+    // Only this user's own realized profit can unlock their reward.
+    if (BigInt(realizedProfitCents(ctx, currentUser.id)) < thresholdCents) {
+      throw new SenderError(
+        "Your realized profit hasn't reached this target yet",
+      );
+    }
+
     ctx.db.wishlistProduct.id.delete(productId);
     ctx.db.wishlistOrder.insert({
       id: 0n,
@@ -62,12 +70,12 @@ export const beginPurchase = spacetimedb.reducer(
       createdAt: ctx.timestamp,
       updatedAt: ctx.timestamp,
     });
-  }
+  },
 );
 
 // Auto-buy for a milestone: marks the milestone reached and turns the user's cheapest wishlist item into a pending order,
 // all in one transaction, so a milestone can fire only once even if two tabs race. The client checks the profit
-// (it lives in the API server's trade list); this reducer guards ownership, acceptance and the once-only rule.
+// from the user's own trades; this reducer re-checks that profit and guards ownership, acceptance and the once-only rule.
 export const beginMilestonePurchase = spacetimedb.reducer(
   { milestoneId: t.u64() },
   (ctx, { milestoneId }) => {
@@ -79,21 +87,32 @@ export const beginMilestonePurchase = spacetimedb.reducer(
     }
 
     if (!milestone.accepted) {
-      throw new SenderError("Accept your milestones before they can unlock rewards");
+      throw new SenderError(
+        "Accept your milestones before they can unlock rewards",
+      );
     }
 
     if (milestone.reached) {
       throw new SenderError("Milestone already reached");
     }
 
+    // Only this user's own realized profit can unlock their reward.
+    if (
+      BigInt(realizedProfitCents(ctx, currentUser.id)) < milestone.targetCents
+    ) {
+      throw new SenderError(
+        "Your realized profit hasn't reached this milestone yet",
+      );
+    }
+
     const cheapest = Array.from(
-      ctx.db.wishlistProduct.wishlist_product_by_user.filter(currentUser.id)
+      ctx.db.wishlistProduct.wishlist_product_by_user.filter(currentUser.id),
     ).sort((a, b) =>
       a.priceCents === b.priceCents
         ? Number(a.id - b.id)
         : a.priceCents < b.priceCents
           ? -1
-          : 1
+          : 1,
     )[0];
 
     if (!cheapest) {
@@ -122,7 +141,7 @@ export const beginMilestonePurchase = spacetimedb.reducer(
       createdAt: ctx.timestamp,
       updatedAt: ctx.timestamp,
     });
-  }
+  },
 );
 
 // Called only by the order server to record progress. Delivered and failed orders are final.
@@ -161,5 +180,5 @@ export const syncOrder = spacetimedb.reducer(
       status,
       updatedAt: ctx.timestamp,
     });
-  }
+  },
 );
