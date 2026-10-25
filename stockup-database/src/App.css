@@ -1959,3 +1959,13 @@ footer {
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+/* Advice the player didn't lock in when they executed the round. */
+.advice-card.status-skipped {
+  opacity: 0.55;
+}
+.advice-skipped {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}

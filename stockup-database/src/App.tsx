@@ -51,7 +51,7 @@ type RoundEntry = {
   name: string;
   personality: string;
   color: string;
-  status: "thinking" | "ready" | "error" | "filling" | "filled";
+  status: "thinking" | "ready" | "error" | "filling" | "filled" | "skipped";
   approved: boolean;
   advice?: Advice;
   fill?: Trade;
@@ -129,7 +129,9 @@ function App({ account }: { account?: Account }) {
   const [simulatedTrades] = useTable(tables.simulatedTrade);
   const [wishlistItems] = useTable(tables.wishlistProduct);
   const [milestoneRows] = useTable(tables.milestone);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // agents are generating advice
+  const [planning, setPlanning] = useState(false); // milestone agent is running
+  const [executing, setExecuting] = useState(false); // locked-in trades are being filled
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
   const [milestonesOpen, setMilestonesOpen] = useState(false);
@@ -349,8 +351,19 @@ function App({ account }: { account?: Account }) {
       );
       return;
     }
-    setLoading(true);
+    setExecuting(true);
     setError("");
+
+    // Only the locked-in cards run. Advice the player didn't lock in is skipped; agents still thinking keep going
+    // and can be locked in and executed afterwards.
+    const toRun = new Set(approvedEntries.map((entry) => entry.name));
+    setRound((current) =>
+      current.map((entry) =>
+        entry.status === "ready" && !toRun.has(entry.name)
+          ? { ...entry, status: "skipped" }
+          : entry,
+      ),
+    );
 
     // Several agents may advise selling the same holding: never sell more than is left.
     const remaining = new Map(holdings);
@@ -415,7 +428,7 @@ function App({ account }: { account?: Account }) {
         });
       }
     }
-    setLoading(false);
+    setExecuting(false);
   };
 
   const fills = round.filter((entry) => entry.status === "filled");
@@ -427,6 +440,13 @@ function App({ account }: { account?: Account }) {
   const sellCount = readyAdvice.filter(
     (e) => e.advice!.action === "sell",
   ).length;
+  // Cards the player could still lock in (or already did) this round.
+  const lockable = round.filter(
+    (entry) =>
+      entry.status === "ready" &&
+      entry.advice &&
+      entry.advice.action !== "hold",
+  );
   const approvedBuyUsd = approvedEntries
     .filter((e) => e.advice!.action === "buy")
     .reduce((sum, e) => sum + e.advice!.amount_usd, 0);
@@ -504,7 +524,7 @@ function App({ account }: { account?: Account }) {
       recommendations: symbols,
     };
     const snapshotNow = snapshotOf(savedWishlist);
-    setLoading(true);
+    setPlanning(true);
     setError("");
     setMilestonesAccepted(false);
     try {
@@ -528,7 +548,7 @@ function App({ account }: { account?: Account }) {
           : "Could not generate milestones",
       );
     } finally {
-      setLoading(false);
+      setPlanning(false);
     }
   };
 
@@ -932,7 +952,7 @@ function App({ account }: { account?: Account }) {
           <button
             className="primary"
             onClick={generateProposal}
-            disabled={loading || budget <= 0 || !allocationsValid}
+            disabled={loading || executing || budget <= 0 || !allocationsValid}
           >
             {thinking ? (
               <>
@@ -1109,6 +1129,8 @@ function App({ account }: { account?: Account }) {
                             <span className="spinner" aria-hidden="true" />{" "}
                             Filling…
                           </span>
+                        ) : entry.status === "skipped" ? (
+                          <span className="advice-skipped">Skipped</span>
                         ) : entry.status === "error" && advice ? (
                           <span className="advice-error">{entry.error}</span>
                         ) : canApprove ? (
@@ -1116,7 +1138,7 @@ function App({ account }: { account?: Account }) {
                             className={`approve-toggle ${entry.approved ? "on" : ""}`}
                             aria-pressed={entry.approved}
                             onClick={() => toggleApproval(entry.name)}
-                            disabled={loading && !thinking}
+                            disabled={executing}
                           >
                             {entry.approved ? "✓ Locked in" : "Lock in"}
                           </button>
@@ -1182,9 +1204,9 @@ function App({ account }: { account?: Account }) {
                   <button
                     className="secondary"
                     onClick={generateMilestones}
-                    disabled={loading || !wishlistSummary}
+                    disabled={planning || !wishlistSummary}
                   >
-                    {loading
+                    {planning
                       ? "Planning milestones…"
                       : milestones.length > 0 || usingSavedMilestones
                         ? "Regenerate milestones"
@@ -1313,15 +1335,17 @@ function App({ account }: { account?: Account }) {
               <div className="advice-actions">
                 <span className="advice-summary">
                   {approvedEntries.length === 0
-                    ? "Lock in the moves you agree with."
-                    : `${approvedEntries.length} locked in · ${money.format(approvedBuyUsd)} to buy${approvedSellUsd > 0 ? ` · ${money.format(approvedSellUsd)} to sell` : ""}`}
+                    ? "Lock in the moves you agree with. Only those run."
+                    : `${approvedEntries.length} of ${lockable.length} locked in · ${money.format(approvedBuyUsd)} to buy${approvedSellUsd > 0 ? ` · ${money.format(approvedSellUsd)} to sell` : ""}${lockable.length > approvedEntries.length ? " · the rest are skipped" : ""}`}
                 </span>
                 <button
                   className="primary execute-trade"
                   onClick={simulateTrade}
-                  disabled={loading || approvedEntries.length === 0}
+                  disabled={
+                    executing || planning || approvedEntries.length === 0
+                  }
                 >
-                  {loading && round.some((e) => e.status === "filling")
+                  {executing
                     ? "Executing trades…"
                     : approvedEntries.length > 1
                       ? `Execute ${approvedEntries.length} trades →`
@@ -1455,7 +1479,7 @@ function App({ account }: { account?: Account }) {
         <Milestones
           onClose={() => setMilestonesOpen(false)}
           canRegenerate={approvedEntries.length > 0 && savedWishlist.length > 0}
-          regenerating={loading}
+          regenerating={planning}
           error={error}
           onRegenerate={generateMilestones}
           onAccept={acceptSavedMilestones}
