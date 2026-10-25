@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { DbConnection, tables } from './module_bindings';
+import { useMyUserId } from './useMyUserId';
 
 export type WishlistProduct = { url: string; retailer: string; title: string; image: string | null; brand: string | null; price_cents: number; stars: number | null };
 type SavedProduct = { id: bigint; url: string; retailer: string; title: string; priceCents: bigint };
@@ -9,13 +10,15 @@ const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD
 type Props = { onClose: () => void };
 
 export default function Wishlist({ onClose }: Props) {
-  const { isActive, identity, getConnection } = useSpacetimeDB();
+  const { isActive, getConnection } = useSpacetimeDB();
+  const myUserId = useMyUserId();
   const [rows] = useTable(tables.wishlistProduct);
   const [orderRows] = useTable(tables.wishlistOrder);
-  // The table is public, so only show rows this browser's identity owns.
+  // The table is public, so only show rows owned by the signed-in account.
   // Cheapest first: that is the order auto-buy purchases them in.
-  const items: SavedProduct[] = rows.filter((row) => row.owner.toHexString() === identity?.toHexString()).sort((a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id));
-  const orders = orderRows.filter((row) => row.owner.toHexString() === identity?.toHexString()).sort((a, b) => Number(b.id - a.id));
+  const items: SavedProduct[] = rows.filter((row) => row.userId === myUserId).sort((a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id));
+  const orders = orderRows.filter((row) => row.userId === myUserId).sort((a, b) => Number(b.id - a.id));
+  const inProgress = orders.filter((order) => order.status !== 'delivered');
   const conn = getConnection() as DbConnection | null;
   const onAdd = (item: WishlistProduct) => {
     if (!conn || !isActive) return;
@@ -79,7 +82,7 @@ export default function Wishlist({ onClose }: Props) {
         </div>)}
       </div>
     </div>
-    {orders.length > 0 && <div className="wish-orders"><div className="section-label">Orders <span className="count">{orders.length}</span></div>{orders.map((order) => <div className="wish-row" key={String(order.id)}>
+    {inProgress.length > 0 && <div className="wish-orders"><div className="section-label">In progress <span className="count">{inProgress.length}</span> · delivered ones are under Purchases</div>{inProgress.map((order) => <div className="wish-row" key={String(order.id)}>
       <div className="wish-info"><div><strong>{order.title}</strong><span>{order.carrier ? `${order.carrier}${order.trackingNumber ? ` · ${order.trackingNumber}` : ''}` : order.error ?? order.retailer}</span></div></div>
       <span className="wish-price">{order.totalCents ? money.format(Number(order.totalCents) / 100) : money.format(Number(order.priceCents) / 100)}</span>
       <span className={`badge order-${order.status}`}>{order.status}</span>

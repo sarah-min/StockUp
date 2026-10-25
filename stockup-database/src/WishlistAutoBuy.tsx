@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { DbConnection, tables } from './module_bindings';
 import DevPanel from './DevPanel';
+import { useMyUserId } from './useMyUserId';
 
 type Toast = { id: number; tone: 'good' | 'bad'; title: string; detail: string };
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -24,12 +25,13 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 // with Zinc and keeps the row updated, and the toasts below come from those row updates.
 // Rendered next to <App /> (inside the SpacetimeDB provider) so it keeps running while the wishlist modal is closed.
 export default function WishlistAutoBuy() {
-  const { isActive, identity, getConnection } = useSpacetimeDB();
+  const { isActive, getConnection } = useSpacetimeDB();
   const [rows] = useTable(tables.wishlistProduct);
-  const isMine = (owner: { toHexString(): string }) => owner.toHexString() === identity?.toHexString();
+  const myUserId = useMyUserId();
+  const isMine = (userId: bigint) => myUserId !== undefined && userId === myUserId;
   useTable(tables.wishlistOrder, {
     onUpdate: (before, after) => {
-      if (!isMine(after.owner) || before.status === after.status) return;
+      if (!isMine(after.userId) || before.status === after.status) return;
       const price = after.totalCents ? ` for ${money.format(Number(after.totalCents) / 100)}` : '';
       if (after.status === 'placed') {
         const arrival = after.estimatedDelivery ? `arriving ${new Date(after.estimatedDelivery).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}` : after.carrier ? `shipping via ${after.carrier}${after.trackingNumber ? ` · ${after.trackingNumber}` : ''}` : 'order placed, tracking soon';
@@ -44,7 +46,7 @@ export default function WishlistAutoBuy() {
   const busy = useRef(false);
   const failed = useRef(new Set<string>());
 
-  const items = rows.filter((row) => isMine(row.owner)).sort((a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id)); // cheapest first, oldest breaks ties
+  const items = rows.filter((row) => isMine(row.userId)).sort((a, b) => Number(a.priceCents - b.priceCents) || Number(a.id - b.id)); // cheapest first, oldest breaks ties
   const update = (next: typeof settings) => { setSettings(next); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ } };
   const toast = useCallback((tone: Toast['tone'], title: string, detail: string) => {
     const id = Date.now() + Math.random();
@@ -66,7 +68,7 @@ export default function WishlistAutoBuy() {
     const conn = getConnection() as DbConnection | null;
     void (async () => {
       try {
-        await conn?.reducers.beginPurchase({ productId: item.id });
+        await conn?.reducers.beginPurchase({ productId: item.id, thresholdCents: BigInt(Math.round(settings.threshold * 100)) });
         toast('good', `OMG! You've made ${money.format(settings.threshold)} in profit 🎉`, `Buying "${item.title}" from your wishlist…`);
         update({ ...settings, threshold: settings.threshold + settings.step });
       } catch (err) {

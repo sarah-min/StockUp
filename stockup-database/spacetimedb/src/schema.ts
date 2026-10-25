@@ -109,6 +109,11 @@ const wishlistProduct = table(
         algorithm: "btree",
         columns: ["owner"],
       },
+      {
+        accessor: "wishlist_product_by_user",
+        algorithm: "btree",
+        columns: ["userId"],
+      },
     ],
   },
   {
@@ -120,6 +125,8 @@ const wishlistProduct = table(
     brand: t.option(t.string()),
     image: t.option(t.string()),
     priceCents: t.u64(),
+    // The account that owns this row (rows from before accounts have 0 and belong to nobody).
+    userId: t.u64().default(0n),
   }
 );
 
@@ -132,6 +139,11 @@ const wishlistOrder = table(
         accessor: "wishlist_order_by_owner",
         algorithm: "btree",
         columns: ["owner"],
+      },
+      {
+        accessor: "wishlist_order_by_user",
+        algorithm: "btree",
+        columns: ["userId"],
       },
       {
         accessor: "wishlist_order_by_status",
@@ -158,6 +170,9 @@ const wishlistOrder = table(
     error: t.option(t.string()),
     createdAt: t.timestamp(),
     updatedAt: t.timestamp(),
+    userId: t.u64().default(0n),
+    // The realized-profit target (in cents) whose crossing unlocked this purchase; 0 if unknown.
+    thresholdCents: t.u64().default(0n),
   }
 );
 

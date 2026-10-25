@@ -175,6 +175,9 @@ const tablesSchema = __schema({
       { accessor: 'wishlist_order_by_status', name: 'wishlist_order_status_idx_btree', algorithm: 'btree', columns: [
         'status',
       ] },
+      { accessor: 'wishlist_order_by_user', name: 'wishlist_order_user_id_idx_btree', algorithm: 'btree', columns: [
+        'userId',
+      ] },
     ],
     constraints: [
       { name: 'wishlist_order_id_key', constraint: 'unique', columns: ['id'] },
@@ -188,6 +191,9 @@ const tablesSchema = __schema({
       ] },
       { accessor: 'wishlist_product_by_owner', name: 'wishlist_product_owner_idx_btree', algorithm: 'btree', columns: [
         'owner',
+      ] },
+      { accessor: 'wishlist_product_by_user', name: 'wishlist_product_user_id_idx_btree', algorithm: 'btree', columns: [
+        'userId',
       ] },
     ],
     constraints: [

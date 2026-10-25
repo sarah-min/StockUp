@@ -12,4 +12,5 @@ import {
 
 export default {
   productId: __t.u64(),
+  thresholdCents: __t.u64(),
 };

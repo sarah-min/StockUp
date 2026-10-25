@@ -1391,3 +1391,47 @@ footer {
     display: none;
   }
 }
+
+/* ---------- Purchases modal ---------- */
+.purchases-list {
+  display: grid;
+  gap: 10px;
+}
+.purchase-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.purchase-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.purchase-main span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.purchase-main .purchase-unlock {
+  margin-top: 4px;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.purchase-side {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.purchases-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 36px 16px;
+  color: var(--muted);
+  text-align: center;
+}
