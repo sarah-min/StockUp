@@ -2082,3 +2082,24 @@ footer {
   color: var(--muted);
   font-size: 11px;
 }
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.pager > div {
+  display: flex;
+  gap: 8px;
+}
+.pager .secondary {
+  width: auto;
+  padding: 6px 14px;
+  font-size: 13px;
+}

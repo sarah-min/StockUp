@@ -74,6 +74,7 @@ type AgentSettings = {
 };
 const MIN_AGENT_ALLOCATION = 1; // dollars every agent must get
 const QUANTITY_SCALE = 1_000_000;
+const HISTORY_PAGE_SIZE = 10;
 const MAX_AGENTS = 10;
 const BUDGET_PRESETS = [50, 100, 500, 1000];
 const PERSONALITIES = [
@@ -136,6 +137,7 @@ function App({ account }: { account?: Account }) {
   const [executing, setExecuting] = useState(false); // locked-in trades are being filled
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
+  const [historyPage, setHistoryPage] = useState(0);
   const [milestonesOpen, setMilestonesOpen] = useState(false);
   const [milestonesSnapshot, setMilestonesSnapshot] = useState("");
   const [error, setError] = useState("");
@@ -476,6 +478,37 @@ function App({ account }: { account?: Account }) {
     (a, b) =>
       Number(b.executedAt.microsSinceUnixEpoch) -
       Number(a.executedAt.microsSinceUnixEpoch),
+  );
+  // One newest-first list of both kinds of trade, shown HISTORY_PAGE_SIZE at a time.
+  const historyRows = [
+    ...sortedTrades.map((item) => ({
+      key: item.id.toString(),
+      symbol: item.symbol,
+      side: item.side,
+      totalCents: item.totalCents,
+      priceCents: item.priceCents,
+      units: Number(item.quantity) / QUANTITY_SCALE,
+      at: Number(item.executedAt.microsSinceUnixEpoch),
+    })),
+    ...sortedSimulatedTrades.map((item) => ({
+      key: `simulated-${item.id.toString()}`,
+      symbol: item.symbol,
+      side: item.side,
+      totalCents: item.totalCents,
+      priceCents: item.priceCents,
+      units: Number(item.quantityMicros) / 1_000_000,
+      at: Number(item.executedAt.microsSinceUnixEpoch),
+    })),
+  ].sort((a, b) => b.at - a.at);
+  const historyPages = Math.max(
+    1,
+    Math.ceil(historyRows.length / HISTORY_PAGE_SIZE),
+  );
+  const currentHistoryPage = Math.min(historyPage, historyPages - 1);
+  const pageStart = currentHistoryPage * HISTORY_PAGE_SIZE;
+  const visibleHistory = historyRows.slice(
+    pageStart,
+    pageStart + HISTORY_PAGE_SIZE,
   );
   const sliderMax = Math.max(1000, budget);
 
@@ -1467,35 +1500,42 @@ function App({ account }: { account?: Account }) {
               <span>Price</span>
               <span>Quantity</span>
             </div>
-            {sortedTrades.map((item) => (
-              <div className="table-row" key={item.id.toString()}>
+            {visibleHistory.map((item) => (
+              <div className="table-row" key={item.key}>
                 <strong>{item.symbol}</strong>
                 <span>
                   <span className={`side side-${item.side}`}>{item.side}</span>
                 </span>
                 <span>{money.format(Number(item.totalCents) / 100)}</span>
                 <span>@ {money.format(Number(item.priceCents) / 100)}</span>
-                <span>
-                  {(Number(item.quantity) / QUANTITY_SCALE).toFixed(6)} units
-                </span>
+                <span>{item.units.toFixed(6)} units</span>
               </div>
             ))}
-            {sortedSimulatedTrades.map((item) => (
-              <div
-                className="table-row"
-                key={`simulated-${item.id.toString()}`}
+          </div>
+        )}
+        {historyRows.length > HISTORY_PAGE_SIZE && (
+          <div className="pager">
+            <span>
+              {pageStart + 1}–
+              {Math.min(pageStart + HISTORY_PAGE_SIZE, historyRows.length)} of{" "}
+              {historyRows.length}
+            </span>
+            <div>
+              <button
+                className="secondary"
+                disabled={currentHistoryPage === 0}
+                onClick={() => setHistoryPage(currentHistoryPage - 1)}
               >
-                <strong>{item.symbol}</strong>
-                <span>
-                  <span className={`side side-${item.side}`}>{item.side}</span>
-                </span>
-                <span>{money.format(Number(item.totalCents) / 100)}</span>
-                <span>@ {money.format(Number(item.priceCents) / 100)}</span>
-                <span>
-                  {(Number(item.quantityMicros) / 1_000_000).toFixed(6)} units
-                </span>
-              </div>
-            ))}
+                ← Newer
+              </button>
+              <button
+                className="secondary"
+                disabled={currentHistoryPage >= historyPages - 1}
+                onClick={() => setHistoryPage(currentHistoryPage + 1)}
+              >
+                Older →
+              </button>
+            </div>
           </div>
         )}
       </section>
