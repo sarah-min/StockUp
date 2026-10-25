@@ -898,40 +898,46 @@ function App({ account }: { account?: Account }) {
                   </button>
                   {milestones.length > 0 && (
                     <div className="milestone-list">
-                      <span>Review or edit the suggestions</span>
+                      <span className="milestone-list-heading">
+                        Review or edit the suggestions
+                      </span>
                       {milestones.map((milestone, index) => (
-                        <div
-                          className="milestone-row"
-                          key={`${milestone.name}-${index}`}
-                        >
-                          <input
-                            aria-label={`Milestone ${index + 1} name`}
-                            value={milestone.name}
-                            onChange={(event) =>
-                              setMilestones((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, name: event.target.value }
-                                    : item,
-                                ),
-                              )
-                            }
-                          />
-                          <input
-                            aria-label={`Milestone ${index + 1} target`}
-                            value={milestone.target}
-                            onChange={(event) => {
-                              setMilestonesAccepted(false);
-                              setMilestones((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, target: event.target.value }
-                                    : item,
-                                ),
-                              );
-                            }}
-                          />
-                          <small>{milestone.rationale}</small>
+                        <div className="milestone-row" key={`${milestone.name}-${index}`}>
+                          <span className="milestone-number">{index + 1}</span>
+                          <div className="milestone-content">
+                            <label>
+                              <span>Milestone</span>
+                              <input
+                                aria-label={`Milestone ${index + 1} name`}
+                                value={milestone.name}
+                                onChange={(event) => {
+                                  setMilestonesAccepted(false);
+                                  setMilestones((current) =>
+                                    current.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, name: event.target.value } : item,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </label>
+                            <label>
+                              <span>Profit target</span>
+                              <input
+                                className="milestone-target"
+                                aria-label={`Milestone ${index + 1} target`}
+                                value={milestone.target}
+                                onChange={(event) => {
+                                  setMilestonesAccepted(false);
+                                  setMilestones((current) =>
+                                    current.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, target: event.target.value } : item,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </label>
+                            {milestone.rationale && <small>{milestone.rationale}</small>}
+                          </div>
                         </div>
                       ))}
                       <button

@@ -677,6 +677,95 @@
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.milestone-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.milestone-list {
+  display: grid;
+  gap: 10px;
+}
+
+.milestone-list-heading {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.milestone-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.milestone-number {
+  display: grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.milestone-content {
+  display: grid;
+  flex: 1;
+  gap: 9px;
+  min-width: 0;
+}
+
+.milestone-content label {
+  display: grid;
+  gap: 4px;
+}
+
+.milestone-content label > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+}
+
+.milestone-content input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+
+.milestone-content input:focus {
+  border-color: var(--border-strong);
+  outline: 2px solid color-mix(in srgb, var(--text) 15%, transparent);
+}
+
+.milestone-content .milestone-target {
+  font-weight: 700;
+}
+
+.milestone-content small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
   margin: 0 0 14px;
 }
 .integration-status {
