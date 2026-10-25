@@ -104,12 +104,35 @@ const money = new Intl.NumberFormat("en-US", {
 });
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "Request failed");
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+  } catch {
+    // The browser never got an answer: the dev server (Vite) is down or the page isn't served by it.
+    throw new Error(
+      "Can't reach the StockUp dev server. Is `npm run dev:all` still running?",
+    );
+  }
+  const text = await response.text();
+  let body: { error?: string } & T;
+  try {
+    body = text ? JSON.parse(text) : ({} as typeof body);
+  } catch {
+    throw new Error(
+      `The StockUp API sent an unexpected reply (${response.status})`,
+    );
+  }
+  if (!response.ok) {
+    // Vite's proxy answers 5xx with an empty body when the API server on :8787 isn't running.
+    if (!text && response.status >= 500)
+      throw new Error(
+        "The StockUp API isn't running. Start it with `npm run api` (or use `npm run dev:all`).",
+      );
+    throw new Error(body.error || `Request failed (${response.status})`);
+  }
   return body;
 }
 

@@ -111,7 +111,7 @@ async function extractAgentResult(result) {
   for (const artifact of result.artifacts || result.result?.artifacts || []) {
     const artifactUrl = typeof artifact === 'string' ? artifact : artifact?.url;
     if (!artifactUrl) continue;
-    const response = await fetch(artifactUrl, {
+    const response = await fetchFrom('CREAO', artifactUrl, {
       headers: { Authorization: `Bearer ${CREAO_API_KEY}` },
     });
     if (response.ok) {
@@ -204,6 +204,16 @@ function validateProposal(value, budget, assetType = value.asset_type || 'crypto
   return proposal;
 }
 
+// Node's fetch only says "fetch failed" on network errors; name the service and the real cause instead.
+async function fetchFrom(service, url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    const cause = error?.cause?.code || error?.cause?.message || error?.message || 'network error';
+    throw new Error(`Couldn't reach ${service} (${cause})`);
+  }
+}
+
 const TRADERS = {
   'personality-1': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
   'agrarian-trader': { id: CREAO_AGRI_AGENT_ID, version: CREAO_AGRI_AGENT_VERSION, name: 'agrarian-trader' },
@@ -220,7 +230,7 @@ async function runTraderAgent(trader, prompt) {
   const startBody = CREAO_IS_APP_KEY
     ? { inputs: { prompt } }
     : { agent_id: appId, input: { prompt } };
-  const start = await fetch(startUrl, { method: 'POST', headers: { Authorization: `Bearer ${CREAO_API_KEY}` }, body: JSON.stringify(startBody) });
+  const start = await fetchFrom('CREAO', startUrl, { method: 'POST', headers: { Authorization: `Bearer ${CREAO_API_KEY}` }, body: JSON.stringify(startBody) });
   if (!start.ok) {
     const detail = await start.json().catch(() => ({}));
     throw new Error(detail.message || detail.error || `CREAO start failed (${start.status})`);
@@ -234,7 +244,7 @@ async function runTraderAgent(trader, prompt) {
     await new Promise((resolve) => setTimeout(resolve, pollDelay));
     pollDelay = Math.min(Math.round(pollDelay * 1.3), 5000);
     const pollUrl = `${CREAO_RUNS_URL}/${runId}`;
-    const response = await fetch(pollUrl, { headers: { Authorization: `Bearer ${CREAO_API_KEY}` } });
+    const response = await fetchFrom('CREAO', pollUrl, { headers: { Authorization: `Bearer ${CREAO_API_KEY}` } });
     if (response.status === 429) {
       await new Promise((resolve) => setTimeout(resolve, 5000));
       continue;
@@ -393,7 +403,7 @@ async function runMilestones(wishlist, proposal) {
 async function runMilestonesOnce(wishlist, proposal) {
   const prompt = `Create paper-trading earning milestones now. Do not ask follow-up questions and do not return conversational text. Infer reasonable assumptions from the information provided. Wishlist: ${wishlist}. The user invested exactly $${proposal.amount_usd} in these assets: ${(proposal.recommendations || [proposal.symbol]).join(', ')}. Return only valid JSON in this exact shape: {"milestones":[{"name":"...","target_profit_usd":0,"rationale":"..."}]}. Include 3 milestones. target_profit_usd must be a plain number of US dollars of realized PROFIT to earn (the gain, not the total portfolio value), never words, never a percentage. State in each rationale that it is a suggestion only, not a guarantee or financial advice.`;
   const startUrl = `https://agent.creao.ai/api/v1/apps/${CREAO_MILESTONE_AGENT_ID}/runs`;
-  const start = await fetch(startUrl, {
+  const start = await fetchFrom('CREAO', startUrl, {
     method: 'POST',
     headers: { Authorization: `Bearer ${CREAO_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ inputs: { prompt } }),
@@ -410,7 +420,7 @@ async function runMilestonesOnce(wishlist, proposal) {
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollDelay));
     pollDelay = Math.min(Math.round(pollDelay * 1.3), 5000);
-    const response = await fetch(`https://agent.creao.ai/api/v1/runs/${runId}`, {
+    const response = await fetchFrom('CREAO', `https://agent.creao.ai/api/v1/runs/${runId}`, {
       headers: { Authorization: `Bearer ${CREAO_API_KEY}` },
     });
     if (response.status === 429) continue;
@@ -443,7 +453,7 @@ async function coinbaseProduct(productId, assetType) {
   const cliResult = await runCoinbaseCli(['products', 'get', productId, `product_type=${assetType === 'stock' ? 'EQUITY' : 'SPOT'}`]);
   if (cliResult) return { product: cliResult, source: 'coinbase-agent-cli' };
 
-  const response = await fetch(`https://api.coinbase.com/api/v3/brokerage/market/products/${encodeURIComponent(productId)}`);
+  const response = await fetchFrom('Coinbase', `https://api.coinbase.com/api/v3/brokerage/market/products/${encodeURIComponent(productId)}`);
   if (response.ok) return { product: await response.json(), source: 'coinbase-public-market-api' };
   return null;
 }
@@ -458,7 +468,7 @@ async function coinbasePrice(symbol) {
   const price = priceFromCoinbaseProduct(result?.product);
   if (Number.isFinite(price)) return { price, source: result.source, product: result.product };
 
-  const response = await fetch(`https://api.coinbase.com/v2/prices/${encodeURIComponent(symbol)}/spot`);
+  const response = await fetchFrom('Coinbase', `https://api.coinbase.com/v2/prices/${encodeURIComponent(symbol)}/spot`);
   if (!response.ok) throw new Error(`Coinbase price lookup failed (${response.status})`);
   const fallback = await response.json();
   const fallbackPrice = Number(fallback.data?.amount);
@@ -472,14 +482,14 @@ async function stockPrice(symbol) {
   const coinbasePriceValue = priceFromCoinbaseProduct(result?.product);
   if (Number.isFinite(coinbasePriceValue)) return { price: coinbasePriceValue, source: result.source, product: result.product };
 
-  const nasdaq = await fetch(`https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=stocks`, { headers: { 'User-Agent': 'StockUp paper-trading simulator/1.0' } });
+  const nasdaq = await fetchFrom('Nasdaq', `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=stocks`, { headers: { 'User-Agent': 'StockUp paper-trading simulator/1.0' } });
   if (nasdaq.ok) {
     const result = await nasdaq.json();
     const rawPrice = result.data?.primaryData?.lastSalePrice;
     const price = Number(String(rawPrice || '').replace(/[$,]/g, ''));
     if (Number.isFinite(price)) return { price, source: 'nasdaq-fallback', product: null };
   }
-  const response = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(STOCK_PRICE_API_KEY)}`);
+  const response = await fetchFrom('Alpha Vantage', `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(STOCK_PRICE_API_KEY)}`);
   if (!response.ok) throw new Error(`Stock price lookup failed (${response.status})`);
   const fallbackResult = await response.json();
   const price = Number(fallbackResult['Global Quote']?.['05. price']);
