@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import "./App.css";
-import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
+import { useReducer, useTable } from "spacetimedb/react";
 import { reducers, tables } from "./module_bindings";
 import Wishlist from "./Wishlist";
 import ThemeToggle from "./ThemeToggle";
+import type { Account } from "./AuthGate";
 
 type AssetType = "crypto" | "stock";
 type Proposal = {
@@ -83,7 +84,7 @@ function Spinner() {
   return <span className="spinner" aria-hidden="true" />;
 }
 
-function App() {
+function App({ account }: { account?: Account }) {
   const [budget, setBudget] = useState(100);
   const [agentNum, setAgentNum] = useState(1);
   const [assetType, setAssetType] = useState<AssetType>("crypto");
@@ -106,37 +107,6 @@ function App() {
   const [agents] = useTable(tables.agent);
   const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
   const [agentsCreated, setAgentsCreated] = useState(false);
-  const createUser = useReducer(reducers.createUser); // use your actual reducer name
-  const { identity, isActive } = useSpacetimeDB();
-
-  // dummy user for testing: every browser identity needs its own user before it can create agents.
-  // (The user table is public and shared, so "no users exist" is not the same as "this identity has no user".)
-  // user_auth is private, so remember per identity that we already tried, and treat "already has a user" as success.
-  useEffect(() => {
-    if (!isActive || !identity) return;
-    const flag = `stockup.userCreated.${identity.toHexString()}`;
-    try {
-      if (localStorage.getItem(flag)) return;
-    } catch {
-      /* storage unavailable: just try */
-    }
-    createUser({
-      name: "Test User",
-      startingBalanceCents: 100000n,
-      // coinbaseAccountId is unique across users, so a shared "fake_id" makes every user after the first fail.
-      coinbaseAccountId: `fake_${identity.toHexString().slice(0, 16)}`,
-    })
-      .then(() => true)
-      .catch((err: unknown) => /already has a user/i.test(String(err)))
-      .then((done) => {
-        if (!done) return;
-        try {
-          localStorage.setItem(flag, "1");
-        } catch {
-          /* storage unavailable */
-        }
-      });
-  }, [isActive, identity]);
 
   async function saveAgents() {
     if (!allocationsValid) {
@@ -368,6 +338,15 @@ function App() {
             Wishlist
           </button>
           <ThemeToggle />
+          {account && (
+            <span className="account-chip">
+              <span className="account-avatar" aria-hidden="true">
+                {account.username.slice(0, 1)}
+              </span>
+              {account.username}
+              <button onClick={account.onLogout}>Log out</button>
+            </span>
+          )}
         </div>
       </header>
 

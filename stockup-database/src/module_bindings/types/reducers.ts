@@ -13,6 +13,9 @@ import ClaimOrderServerReducer from "../claim_order_server_reducer";
 import CreateAgentReducer from "../create_agent_reducer";
 import CreateUserReducer from "../create_user_reducer";
 import ExecuteTradeReducer from "../execute_trade_reducer";
+import LoginReducer from "../login_reducer";
+import LogoutReducer from "../logout_reducer";
+import RegisterAccountReducer from "../register_account_reducer";
 import RemoveWishlistProductReducer from "../remove_wishlist_product_reducer";
 import SyncOrderReducer from "../sync_order_reducer";
 
@@ -23,6 +26,9 @@ export type ClaimOrderServerParams = __Infer<typeof ClaimOrderServerReducer>;
 export type CreateAgentParams = __Infer<typeof CreateAgentReducer>;
 export type CreateUserParams = __Infer<typeof CreateUserReducer>;
 export type ExecuteTradeParams = __Infer<typeof ExecuteTradeReducer>;
+export type LoginParams = __Infer<typeof LoginReducer>;
+export type LogoutParams = __Infer<typeof LogoutReducer>;
+export type RegisterAccountParams = __Infer<typeof RegisterAccountReducer>;
 export type RemoveWishlistProductParams = __Infer<typeof RemoveWishlistProductReducer>;
 export type SyncOrderParams = __Infer<typeof SyncOrderReducer>;
 

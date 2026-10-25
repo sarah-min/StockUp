@@ -41,6 +41,9 @@ import ClaimOrderServerReducer from "./claim_order_server_reducer";
 import CreateAgentReducer from "./create_agent_reducer";
 import CreateUserReducer from "./create_user_reducer";
 import ExecuteTradeReducer from "./execute_trade_reducer";
+import LoginReducer from "./login_reducer";
+import LogoutReducer from "./logout_reducer";
+import RegisterAccountReducer from "./register_account_reducer";
 import RemoveWishlistProductReducer from "./remove_wishlist_product_reducer";
 import SyncOrderReducer from "./sync_order_reducer";
 
@@ -50,6 +53,7 @@ import SyncOrderReducer from "./sync_order_reducer";
 import AgentRow from "./agent_table";
 import AgentPositionRow from "./agent_position_table";
 import MarketPriceRow from "./market_price_table";
+import SessionRow from "./session_table";
 import TradeRow from "./trade_table";
 import UserRow from "./user_table";
 import WishlistItemRow from "./wishlist_item_table";
@@ -103,6 +107,20 @@ const tablesSchema = __schema({
       { name: 'market_price_symbol_key', constraint: 'unique', columns: ['symbol'] },
     ],
   }, MarketPriceRow),
+  session: __table({
+    name: 'session',
+    indexes: [
+      { accessor: 'identity', name: 'session_identity_idx_btree', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+      { accessor: 'session_by_user', name: 'session_user_id_idx_btree', algorithm: 'btree', columns: [
+        'userId',
+      ] },
+    ],
+    constraints: [
+      { name: 'session_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, SessionRow),
   trade: __table({
     name: 'trade',
     indexes: [
@@ -187,6 +205,9 @@ const reducersSchema = __reducers(
   __reducerSchema("create_agent", CreateAgentReducer),
   __reducerSchema("create_user", CreateUserReducer),
   __reducerSchema("execute_trade", ExecuteTradeReducer),
+  __reducerSchema("login", LoginReducer),
+  __reducerSchema("logout", LogoutReducer),
+  __reducerSchema("register_account", RegisterAccountReducer),
   __reducerSchema("remove_wishlist_product", RemoveWishlistProductReducer),
   __reducerSchema("sync_order", SyncOrderReducer),
 );
