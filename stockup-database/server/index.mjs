@@ -195,8 +195,16 @@ async function coinbasePreview({ productId, assetType, action, amountUsd, price 
     if (!preview) return { status: 'paper-only', source: 'local-simulation', message: 'Install and authenticate the Coinbase CLI to enable Coinbase order previews.' };
     return { status: 'previewed', source: 'coinbase-agent-cli', preview };
   } catch (error) {
-    if (assetType === 'stock') return { status: 'unavailable', source: 'coinbase-agent-cli', message: error.message };
-    throw error;
+    // StockUp is paper-only: Coinbase order previews can still reject a
+    // request because the connected portfolio has no funds, even though no
+    // live order would ever be created here. Preserve the simulation by
+    // recording the Coinbase error as diagnostic metadata instead of making
+    // Generate Trade fail.
+    return {
+      status: 'paper-only',
+      source: 'local-simulation',
+      message: `Coinbase order preview unavailable; simulated locally: ${error.message}`,
+    };
   }
 }
 

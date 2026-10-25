@@ -11,7 +11,7 @@ export default function AuthGate({
 }: {
   children: (account: Account) => ReactNode;
 }) {
-  const { identity } = useSpacetimeDB();
+  const { identity, isActive } = useSpacetimeDB();
   const [sessions, ready] = useTable(tables.session);
   const logout = useReducer(reducers.logout);
   const me = identity?.toHexString();
@@ -24,6 +24,17 @@ export default function AuthGate({
     const timer = setTimeout(() => setStalled(true), 8000);
     return () => clearTimeout(timer);
   }, [ready]);
+
+  // A Coinbase/CREAO request can overlap a brief SpacetimeDB reconnect. During
+  // that window the identity/session snapshot may be temporarily unavailable;
+  // that is not the same thing as the user logging out.
+  if (!isActive || !identity) {
+    return (
+      <div className="auth-loading" role="status">
+        <span className="spinner" /> Reconnecting to StockUp…
+      </div>
+    );
+  }
 
   if (!session) {
     if (!ready && stalled) {

@@ -6,6 +6,7 @@ import Wishlist from "./Wishlist";
 import Purchases from "./Purchases";
 import ThemeToggle from "./ThemeToggle";
 import type { Account } from "./AuthGate";
+import { useMyUserId } from "./useMyUserId";
 
 type AssetType = "crypto" | "stock";
 type Proposal = {
@@ -45,6 +46,7 @@ type AgentSettings = {
   personality: string;
 };
 const MIN_AGENT_ALLOCATION = 1; // dollars every agent must get
+const QUANTITY_SCALE = 1_000_000;
 const MAX_AGENTS = 10;
 const BUDGET_PRESETS = [50, 100, 500, 1000];
 const PERSONALITIES = [
@@ -107,6 +109,7 @@ function App({ account }: { account?: Account }) {
   const createAgent = useReducer(reducers.createAgent);
   const executeTrade = useReducer(reducers.executeTrade);
   const [agents] = useTable(tables.agent);
+  const myUserId = useMyUserId();
   const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
   const [agentsCreated, setAgentsCreated] = useState(false);
 
@@ -116,10 +119,36 @@ function App({ account }: { account?: Account }) {
       return;
     }
 
-    for (const [index, agent] of agentAllocations.entries()) {
+    // Agent rows persist in SpacetimeDB, while this React state resets on a
+    // page reload. Reuse this user's rows instead of inserting duplicates.
+    const ownedAgents =
+      myUserId === undefined
+        ? []
+        : agents
+            .filter((agent) => agent.userId === myUserId)
+            .sort((left, right) => (left.id < right.id ? -1 : 1));
+
+    if (ownedAgents.length >= agentAllocations.length) {
+      setAgentsCreated(true);
+      if (selectedAgentId === null && ownedAgents[0]) {
+        setSelectedAgentId(ownedAgents[0].id);
+      }
+      return;
+    }
+
+    const userScope = myUserId?.toString() ?? account?.username ?? "session";
+    for (
+      let index = ownedAgents.length;
+      index < agentAllocations.length;
+      index += 1
+    ) {
+      const agent = agentAllocations[index];
+      if (!agent) continue;
       await createAgent({
         name: `Agent ${index + 1}`,
-        apiEndpoint: `/api/agents/${index + 1}`,
+        // apiEndpoint is globally unique in the SpacetimeDB schema. Scope it
+        // by user so two teammates/accounts can both have an Agent 1.
+        apiEndpoint: `/api/agents/${userScope}/${index + 1}`,
         personality: agent.personality,
         initialBalanceCents: BigInt(Math.round(agent.allocation * 100)),
       });
@@ -127,6 +156,20 @@ function App({ account }: { account?: Account }) {
 
     setAgentsCreated(true);
   }
+
+  // The subscription update after createAgent gives us the real database ID.
+  // Select the first owned agent so the next “Place this trade” action knows
+  // which ledger account should receive the simulated trade.
+  useEffect(() => {
+    if (myUserId === undefined) return;
+    const ownedAgents = agents
+      .filter((agent) => agent.userId === myUserId)
+      .sort((left, right) => (left.id < right.id ? -1 : 1));
+    if (ownedAgents.length >= agentNum) setAgentsCreated(true);
+    if (selectedAgentId === null && ownedAgents[0]) {
+      setSelectedAgentId(ownedAgents[0].id);
+    }
+  }, [agentNum, agents, myUserId, selectedAgentId]);
 
   useEffect(() => {
     request<Health>("/api/health")
@@ -276,7 +319,11 @@ function App({ account }: { account?: Account }) {
         agentId: selectedAgentId,
         side: result.trade.action,
         symbol: result.trade.symbol,
-        quantity: BigInt(Math.floor(result.trade.quantity)),
+        // The ledger stores millionths so crypto and fractional shares do not
+        // get rounded down to zero (e.g. $10 of BTC).
+        quantity: BigInt(
+          Math.max(1, Math.round(result.trade.quantity * QUANTITY_SCALE)),
+        ),
         priceCents: BigInt(Math.round(result.trade.price * 100)),
       });
 
@@ -899,7 +946,9 @@ function App({ account }: { account?: Account }) {
                 </span>
                 <span>{money.format(Number(item.totalCents) / 100)}</span>
                 <span>@ {money.format(Number(item.priceCents) / 100)}</span>
-                <span>{item.quantity.toString()} shares</span>
+                <span>
+                  {(Number(item.quantity) / QUANTITY_SCALE).toFixed(6)} units
+                </span>
               </div>
             ))}
           </div>

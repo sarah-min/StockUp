@@ -2,6 +2,10 @@ import  { t } from "spacetimedb";
 import spacetimedb from "..";
 import { getMarket, requireOwnedAgent } from "../helpers/auth";
 
+// Quantities are stored as millionths so the ledger supports fractional
+// shares/coins (for example, $10 of BTC is much less than one whole BTC).
+const QUANTITY_SCALE = 1_000_000n;
+
 export const executeTrade = spacetimedb.reducer(
   {
     agentId: t.u64(),
@@ -27,7 +31,8 @@ export const executeTrade = spacetimedb.reducer(
     }
 
     const normalizedSymbol = symbol.trim().toUpperCase();
-    const totalCents = quantity * priceCents;
+    const totalCents =
+      (quantity * priceCents + QUANTITY_SCALE / 2n) / QUANTITY_SCALE;
     const market = getMarket(ctx);
 
     const existingPosition = Array.from(
