@@ -104,7 +104,7 @@ export default function OpenPositions() {
       const percent = pct[position.symbol] ?? 100;
       return <div className="position-row" key={position.symbol}>
         <div className="position-main">
-          <strong>{position.symbol}</strong>
+          <strong>{position.symbol} <span className="asset-tag">{position.symbol.includes('-') ? 'Crypto' : 'Stock'}</span></strong>
           <span>{units.toFixed(6)} units · avg {money.format(position.costCents / 100 / units)}{price === undefined ? '' : ` · now ${money.format(price)}`}</span>
         </div>
         <div className="position-value">

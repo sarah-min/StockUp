@@ -442,13 +442,8 @@ function App({ account }: { account?: Account }) {
 
   const fills = round.filter((entry) => entry.status === "filled");
   const step = fills.length > 0 ? 3 : round.length > 0 ? 2 : 1;
-  const steps = ["Set your play", "Agent advice", "Ledger"];
+  const steps = ["Configure strategy", "Agent advice", "Ledger"];
   const thinking = round.some((entry) => entry.status === "thinking");
-  const readyAdvice = round.filter((entry) => entry.advice);
-  const buyCount = readyAdvice.filter((e) => e.advice!.action === "buy").length;
-  const sellCount = readyAdvice.filter(
-    (e) => e.advice!.action === "sell",
-  ).length;
   // Cards the player could still lock in (or already did) this round.
   const lockable = round.filter(
     (entry) =>
@@ -692,7 +687,7 @@ function App({ account }: { account?: Account }) {
       <section className="intro">
         <div>
           <h1>
-            Let an agent make the pitch. <span>You make the call.</span>
+            Agents recommend. <span>You decide.</span>
           </h1>
           <p className="intro-copy">
             Set a budget, deploy your agents and compare their advice.
@@ -768,7 +763,7 @@ function App({ account }: { account?: Account }) {
         <div className={`card setup-card ${step === 1 ? "is-active" : ""}`}>
           <div className="card-head">
             <span className="card-kicker">Step 1</span>
-            <h2>Set your play</h2>
+            <h2>Configure your strategy</h2>
           </div>
 
           <div className="field">
@@ -1053,17 +1048,6 @@ function App({ account }: { account?: Account }) {
               <span className="card-kicker">Step 2</span>
               <h2>Agent advice</h2>
             </div>
-            {readyAdvice.length > 0 && (
-              <div className="advice-tally" aria-label="Advice summary">
-                <span className="side side-buy">{buyCount} buy</span>
-                <span className="side side-sell">{sellCount} sell</span>
-                {readyAdvice.length - buyCount - sellCount > 0 && (
-                  <span className="side side-hold">
-                    {readyAdvice.length - buyCount - sellCount} hold
-                  </span>
-                )}
-              </div>
-            )}
           </div>
           {round.length === 0 ? (
             <div className="empty-state">
@@ -1072,7 +1056,7 @@ function App({ account }: { account?: Account }) {
                 <span />
                 <span />
               </div>
-              <p>Each agent’s next move appears here.</p>
+              <p>Each agent’s recommendation appears here.</p>
               <span>
                 Every agent follows its own strategy, so expect different picks.
               </span>
@@ -1121,7 +1105,6 @@ function App({ account }: { account?: Account }) {
                           <div className="advice-move">
                             <span className="side side-hold">hold</span>
                           </div>
-                          <p className="advice-why">{advice.rationale}</p>
                         </div>
                       )}
 
@@ -1171,7 +1154,6 @@ function App({ account }: { account?: Account }) {
                               <i style={{ width: `${pct}%` }} />
                             </div>
                           </div>
-                          <p className="advice-why">{advice.rationale}</p>
                         </div>
                       )}
 
@@ -1392,7 +1374,7 @@ function App({ account }: { account?: Account }) {
               <div className="advice-actions">
                 <span className="advice-summary">
                   {approvedEntries.length === 0
-                    ? "Lock in the moves you agree with. Only those run."
+                    ? "Lock in the recommendations you agree with. Only those are executed."
                     : `${approvedEntries.length} of ${lockable.length} locked in · ${money.format(approvedBuyUsd)} to buy${approvedSellUsd > 0 ? ` · ${money.format(approvedSellUsd)} to sell` : ""}${lockable.length > approvedEntries.length ? " · the rest are skipped" : ""}`}
                 </span>
                 <button
@@ -1420,7 +1402,7 @@ function App({ account }: { account?: Account }) {
           </div>
           {fills.length === 0 ? (
             <div className="empty-state compact">
-              <p>No fills this round yet.</p>
+              <p>No executed trades yet.</p>
               <span>Locked-in trades are filled at the live market price.</span>
             </div>
           ) : (

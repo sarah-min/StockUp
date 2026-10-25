@@ -147,7 +147,7 @@ function normalizeTraderResult(value, budget, assetType, traderName) {
     amount_usd: value.amount_usd || budget,
     confidence: value.confidence ?? 0.62,
     risk: value.risk || 'medium',
-    rationale: value.rationale || value.reason || value.strategy || `Typical ${assetType} picks from the ${traderName} strategy.`,
+    rationale: value.rationale || value.reason || value.strategy || '',
   };
 }
 
@@ -443,6 +443,9 @@ async function coinbaseProduct(productId, assetType) {
   const cliResult = await runCoinbaseCli(['products', 'get', productId, `product_type=${assetType === 'stock' ? 'EQUITY' : 'SPOT'}`]);
   if (cliResult) return { product: cliResult, source: 'coinbase-agent-cli' };
 
+  // The public market API only knows crypto products. For a stock it would happily return a coin that shares the ticker
+  // (META-USD is a token at about $5, not Meta Platforms), so stocks fall through to the Nasdaq quote instead.
+  if (assetType === 'stock') return null;
   const response = await fetch(`https://api.coinbase.com/api/v3/brokerage/market/products/${encodeURIComponent(productId)}`);
   if (response.ok) return { product: await response.json(), source: 'coinbase-public-market-api' };
   return null;

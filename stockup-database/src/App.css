@@ -2103,3 +2103,16 @@ footer {
   padding: 6px 14px;
   font-size: 13px;
 }
+
+.asset-tag {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
