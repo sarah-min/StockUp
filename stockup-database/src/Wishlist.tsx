@@ -52,7 +52,7 @@ export default function Wishlist({ onClose }: Props) {
 
   return <div className="modal-backdrop" onClick={onClose}><div className="modal card" role="dialog" aria-label="Wishlist" onClick={(event) => event.stopPropagation()}>
     <div className="modal-head">
-      <div><h2>Wishlist</h2><p className="modal-sub">Rewards bought automatically when your paper profit hits the target.{isActive ? '' : ' Connecting…'}</p></div>
+      <div><h2>Wishlist</h2><p className="modal-sub">Rewards bought automatically when your realized profit hits the target.{isActive ? '' : ' Connecting…'}</p></div>
       <button className="icon-button" onClick={onClose} aria-label="Close">×</button>
     </div>
     <form className="wish-search" onSubmit={search}>
