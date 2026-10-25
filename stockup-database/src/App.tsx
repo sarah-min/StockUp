@@ -99,11 +99,12 @@ function App({ account }: { account?: Account }) {
   const [health, setHealth] = useState<Health | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [proposalApproved, setProposalApproved] = useState(false);
-  const [wishlist, setWishlist] = useState("");
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [milestonesAccepted, setMilestonesAccepted] = useState(false);
   const [trade, setTrade] = useState<Trade | null>(null);
   const [dbTrades] = useTable(tables.trade);
+  const [simulatedTrades] = useTable(tables.simulatedTrade);
+  const [wishlistItems] = useTable(tables.wishlistProduct);
   const [loading, setLoading] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [purchasesOpen, setPurchasesOpen] = useState(false);
@@ -117,7 +118,7 @@ function App({ account }: { account?: Account }) {
   ]);
   const { identity } = useSpacetimeDB();
   const createAgent = useReducer(reducers.createAgent);
-  const executeTrade = useReducer(reducers.executeTrade);
+  const executeSimulatedTrade = useReducer(reducers.executeSimulatedTrade);
   const [agents] = useTable(tables.agent);
   const [sessions] = useTable(tables.session);
   const currentSession = sessions.find(
@@ -126,6 +127,12 @@ function App({ account }: { account?: Account }) {
   const ownedAgents = agents.filter(
     (agent) => currentSession && agent.userId === currentSession.userId,
   );
+  const savedWishlist = wishlistItems.filter(
+    (item) => currentSession && item.userId === currentSession.userId,
+  );
+  const wishlistSummary = savedWishlist
+    .map((item) => `${item.title} (${money.format(Number(item.priceCents) / 100)})`)
+    .join(", ");
   const [selectedAgentId, setSelectedAgentId] = useState<bigint | null>(null);
   const [agentsCreated, setAgentsCreated] = useState(false);
   useEffect(() => {
@@ -320,17 +327,19 @@ function App({ account }: { account?: Account }) {
         body: JSON.stringify({ proposal }),
       });
 
-      // SpacetimeDB records the trade and updates balances/positions.
-      const wholeUnits = Math.floor(result.trade.quantity);
-      if (wholeUnits > 0) {
-        await executeTrade({
-          agentId: selectedAgentId,
-          side: result.trade.action,
-          symbol: result.trade.symbol,
-          quantity: BigInt(wholeUnits),
-          priceCents: BigInt(Math.round(result.trade.price * 100)),
-        });
-      }
+      // SpacetimeDB records the simulated trade and updates its fixed-point position.
+      const quantityMicros = BigInt(Math.round(result.trade.quantity * 1_000_000));
+      const priceCents = BigInt(Math.round(result.trade.price * 100));
+      const totalCents =
+        (quantityMicros * priceCents + 999_999n) / 1_000_000n;
+      await executeSimulatedTrade({
+        agentId: selectedAgentId,
+        side: result.trade.action,
+        symbol: result.trade.symbol,
+        quantityMicros,
+        priceCents,
+        totalCents,
+      });
 
       setTrade(result.trade);
 
@@ -351,12 +360,20 @@ function App({ account }: { account?: Account }) {
       Number(b.executedAt.microsSinceUnixEpoch) -
       Number(a.executedAt.microsSinceUnixEpoch),
   );
+  const visibleSimulatedTrades = simulatedTrades.filter(
+    (item) => !currentSession || item.userId === currentSession.userId,
+  );
+  const sortedSimulatedTrades = [...visibleSimulatedTrades].sort(
+    (a, b) =>
+      Number(b.executedAt.microsSinceUnixEpoch) -
+      Number(a.executedAt.microsSinceUnixEpoch),
+  );
   const sliderMax = Math.max(1000, budget);
   const confidencePct = proposal ? Math.round(proposal.confidence * 100) : 0;
 
   const generateMilestones = async () => {
-    if (!proposalApproved || !proposal || !wishlist.trim()) {
-      setError("Approve the proposal and enter a wishlist first");
+    if (!proposalApproved || !proposal || !wishlistSummary) {
+      setError("Approve the proposal and add something to your Wishlist first");
       return;
     }
     setLoading(true);
@@ -365,7 +382,7 @@ function App({ account }: { account?: Account }) {
     try {
       const result = await request<{ milestones: { milestones: Milestone[] } }>("/api/milestones", {
         method: "POST",
-        body: JSON.stringify({ wishlist, proposal }),
+        body: JSON.stringify({ wishlist: wishlistSummary, proposal }),
       });
       setMilestones(result.milestones.milestones);
     } catch (error) {
@@ -850,21 +867,20 @@ function App({ account }: { account?: Account }) {
               </button>
               {proposalApproved && (
                 <div className="milestone-panel">
-                  <label htmlFor="wishlist">Wishlist / earning goals</label>
-                  <textarea
-                    id="wishlist"
-                    value={wishlist}
-                    onChange={(event) => {
-                      setWishlist(event.target.value);
-                      setMilestonesAccepted(false);
-                    }}
-                    placeholder="Example: Save for a $500 emergency fund and a new laptop."
-                    rows={3}
-                  />
+                  <span className="section-label">Investment milestones</span>
+                  {wishlistSummary ? (
+                    <p className="helper">
+                      Based on your saved Wishlist: {wishlistSummary}
+                    </p>
+                  ) : (
+                    <p className="helper">
+                      Add an item to your Wishlist before generating milestones.
+                    </p>
+                  )}
                   <button
                     className="secondary"
                     onClick={generateMilestones}
-                    disabled={loading || !wishlist.trim()}
+                    disabled={loading || !wishlistSummary}
                   >
                     {loading ? "Planning milestones…" : "Suggest earning milestones →"}
                   </button>
@@ -1010,9 +1026,9 @@ function App({ account }: { account?: Account }) {
       <section className="card history">
         <div className="card-head row">
           <h2>Recent trades</h2>
-          <span className="count">{dbTrades.length}</span>
+          <span className="count">{sortedTrades.length + sortedSimulatedTrades.length}</span>
         </div>
-        {sortedTrades.length === 0 ? (
+        {sortedTrades.length === 0 && sortedSimulatedTrades.length === 0 ? (
           <p className="history-empty">Your trades will show up here.</p>
         ) : (
           <div className="table">
@@ -1032,6 +1048,17 @@ function App({ account }: { account?: Account }) {
                 <span>{money.format(Number(item.totalCents) / 100)}</span>
                 <span>@ {money.format(Number(item.priceCents) / 100)}</span>
                 <span>{item.quantity.toString()} shares</span>
+              </div>
+            ))}
+            {sortedSimulatedTrades.map((item) => (
+              <div className="table-row" key={`simulated-${item.id.toString()}`}>
+                <strong>{item.symbol}</strong>
+                <span>
+                  <span className={`side side-${item.side}`}>{item.side}</span>
+                </span>
+                <span>{money.format(Number(item.totalCents) / 100)}</span>
+                <span>@ {money.format(Number(item.priceCents) / 100)}</span>
+                <span>{(Number(item.quantityMicros) / 1_000_000).toFixed(6)} units</span>
               </div>
             ))}
           </div>

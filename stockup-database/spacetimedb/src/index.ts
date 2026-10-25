@@ -5,6 +5,6 @@ export { registerAccount, login, logout } from "./reducers/accounts";
 export { createAgent } from "./reducers/agents";
 export { addWishlistItem, addWishlistProduct, removeWishlistProduct } from "./reducers/wishlist";
 export { executeTrade } from "./reducers/trades";
+export { executeSimulatedTrade } from "./reducers/simulatedTrades";
 export { claimOrderServer, beginPurchase, syncOrder } from "./reducers/orders";
 export { init } from "./reducers/init";
-
