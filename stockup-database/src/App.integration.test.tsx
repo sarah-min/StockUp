@@ -125,7 +125,46 @@ describe("StockUp paper-trading flow", () => {
     await user.click(screen.getByRole("button", { name: /^lock in$/i }));
     expect(execute).toBeEnabled();
     expect(
-      screen.getByText(/1 of 1 locked in · \$25\.00 to buy/i),
+      screen.getByText(/1 of 1 locked in · \$1\.00 to buy/i),
+    ).toBeInTheDocument();
+  });
+
+  it("never lets an agent buy more than its share of the budget", async () => {
+    // An out-of-date API ignores the allocation and asks for $100.
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith("/api/proposal"))
+        return new Response(
+          JSON.stringify({
+            proposal: {
+              symbol: "BTC-USD",
+              asset_type: "crypto",
+              action: "buy",
+              amount_usd: 100,
+              confidence: 0.62,
+              rationale: "Old server",
+              risk: "medium",
+              source: "creao",
+            },
+          }),
+        );
+      return original(input, init);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /add an agent/i }));
+    await user.click(
+      screen.getByRole("button", { name: /generate strategy/i }),
+    );
+    // Agent 1 has the $1 minimum, Agent 2 gets the other $99 of the $100 budget.
+    expect(
+      await screen.findByText(
+        /uses 100% of its \$1\.00 \(asked for \$100\.00, capped at its share\)/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/uses 100% of its \$99\.00 \(asked for \$100\.00/i),
     ).toBeInTheDocument();
   });
 

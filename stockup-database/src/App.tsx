@@ -46,6 +46,7 @@ type Advice = Omit<Proposal, "action"> & {
   held_value?: number;
   price?: number;
   sell_all?: boolean;
+  requested_usd?: number;
 };
 type RoundEntry = {
   name: string;
@@ -242,10 +243,15 @@ function App({ account }: { account?: Account }) {
             method: "POST",
             body: JSON.stringify({ assetType, agent }),
           });
-          patchRound(agent.name, {
-            status: "ready",
-            advice: { ...result.proposal, agent_name: agent.name },
-          });
+          // Never trust the API with the budget: a buy can't exceed this agent's share. (An API server that
+          // predates per-agent advice ignores the allocation entirely, so cap here too.)
+          const advice: Advice = { ...result.proposal, agent_name: agent.name };
+          if (advice.cash_usd === undefined) advice.cash_usd = agent.cash_usd;
+          if (advice.action === "buy" && advice.amount_usd > agent.cash_usd) {
+            advice.requested_usd = advice.requested_usd ?? advice.amount_usd;
+            advice.amount_usd = Math.floor(agent.cash_usd * 100) / 100;
+          }
+          patchRound(agent.name, { status: "ready", advice });
         } catch (err) {
           patchRound(agent.name, {
             status: "error",
@@ -1102,6 +1108,9 @@ function App({ account }: { account?: Account }) {
                                 {advice.cash_usd
                                   ? `${Math.round((advice.amount_usd / advice.cash_usd) * 100)}% of its ${money.format(advice.cash_usd)}`
                                   : "its budget"}
+                                {advice.requested_usd
+                                  ? ` (asked for ${money.format(advice.requested_usd)}, capped at its share)`
+                                  : ""}
                               </>
                             )}
                           </p>
