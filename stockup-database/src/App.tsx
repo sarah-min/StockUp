@@ -731,10 +731,6 @@ function App({ account }: { account?: Account }) {
             <dt>Trades</dt>
             <dd>{visibleSimulatedTrades.length}</dd>
           </div>
-          <div>
-            <dt>Agents</dt>
-            <dd>{agentAllocations.length}</dd>
-          </div>
         </dl>
       </section>
 
@@ -1295,17 +1291,7 @@ function App({ account }: { account?: Account }) {
                                 </small>
                               )}
                             </span>
-                            <strong>
-                              +{row.target}
-                              <small className="milestone-total">
-                                {" "}
-                                {money.format(
-                                  Number(row.baselineCents + row.targetCents) /
-                                    100,
-                                )}{" "}
-                                total
-                              </small>
-                            </strong>
+                            <strong>+{row.target}</strong>
                           </li>
                         ))}
                       </ul>

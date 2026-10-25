@@ -58,10 +58,9 @@ export default function Milestones({ onClose, canRegenerate, regenerating, error
         </div>
         <div className="purchase-side">
           <span className="wish-price">+{row.target}</span>
-          <small className="purchase-sub">{money.format(Number(row.baselineCents + row.targetCents) / 100)} total profit</small>
           {row.reached
             ? <span className="badge order-delivered">Completed</span>
-            : <small className="purchase-sub">{earned === null ? 'In progress' : earned >= Number(row.targetCents) / 100 ? (row.accepted ? 'Target met · unlocking…' : 'Target met · accept to unlock') : `${Math.max(0, Math.min(99, Math.round((earned / (Number(row.targetCents) / 100)) * 100)))}% earned`}</small>}
+            : <small className="purchase-sub">{earned === null ? 'In progress' : earned >= Number(row.targetCents) / 100 ? (row.accepted ? 'Target met · unlocking…' : 'Target met · accept to unlock') : `${money.format(Math.max(0, earned))} of ${money.format(Number(row.targetCents) / 100)} earned`}</small>}
         </div>
       </div>)}
     </div>}

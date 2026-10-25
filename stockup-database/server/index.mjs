@@ -334,13 +334,29 @@ function finalizeAdvice(raw, { agent, assetType, cash, holdings, source, traderN
   return { ...base, ...validateProposal({ ...normalized, action: 'buy' }, cash, assetType) };
 }
 
+const ADVICE_TIMEOUT_MS = Number(process.env.ADVICE_TIMEOUT_MS) || 25_000;
+
+// Rejects if the promise takes longer than ms. The slow call keeps running in the background and is ignored.
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function adviseAgent(agent, assetType) {
   const cash = Math.max(0, roundCents(Number(agent.cash_usd) || 0));
   const holdings = await priceHoldings(agent.holdings);
   if (!CREAO_API_KEY) return finalizeAdvice(demoAdvice(agent, assetType, cash, holdings), { agent, assetType, cash, holdings, source: 'demo' });
   const trader = TRADERS[agent.personality] || TRADERS['personality-1'];
-  const result = await runTraderAgent(trader, advicePrompt(trader, assetType, cash, holdings));
-  return finalizeAdvice(result, { agent, assetType, cash, holdings, source: 'creao', traderName: trader.name });
+  // Creao can be slow or fail. For a smooth demo, give it ADVICE_TIMEOUT_MS and then fall back to the built-in demo advice
+  // for this agent instead of leaving its card spinning or showing an error.
+  try {
+    const result = await withTimeout(runTraderAgent(trader, advicePrompt(trader, assetType, cash, holdings)), ADVICE_TIMEOUT_MS, 'CREAO took too long to answer');
+    return finalizeAdvice(result, { agent, assetType, cash, holdings, source: 'creao', traderName: trader.name });
+  } catch (error) {
+    console.warn(`CREAO advice for ${agent.name || 'an agent'} failed (${error instanceof Error ? error.message : error}); using demo advice.`);
+    return finalizeAdvice(demoAdvice(agent, assetType, cash, holdings), { agent, assetType, cash, holdings, source: 'demo' });
+  }
 }
 
 // A milestone target is dollars of realized profit. Accepts 135, "$135", "1,200.50" or "35%" (of the invested amount);

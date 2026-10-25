@@ -136,7 +136,7 @@
 }
 .scoreboard {
   display: grid;
-  grid-template-columns: repeat(3, minmax(110px, 1fr));
+  grid-template-columns: repeat(2, minmax(130px, auto));
   margin: 0;
   border: 1px solid var(--border);
   border-radius: 14px;
