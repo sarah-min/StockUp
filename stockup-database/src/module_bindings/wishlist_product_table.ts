@@ -19,4 +19,5 @@ export default __t.row({
   brand: __t.option(__t.string()),
   image: __t.option(__t.string()),
   priceCents: __t.u64().name("price_cents"),
+  userId: __t.u64().name("user_id"),
 });

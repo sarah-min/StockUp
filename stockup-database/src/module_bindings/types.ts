@@ -125,6 +125,7 @@ export const WishlistOrder = __t.object("WishlistOrder", {
   error: __t.option(__t.string()),
   createdAt: __t.timestamp(),
   updatedAt: __t.timestamp(),
+  userId: __t.u64(),
 });
 export type WishlistOrder = __Infer<typeof WishlistOrder>;
 
@@ -137,6 +138,7 @@ export const WishlistProduct = __t.object("WishlistProduct", {
   brand: __t.option(__t.string()),
   image: __t.option(__t.string()),
   priceCents: __t.u64(),
+  userId: __t.u64(),
 });
 export type WishlistProduct = __Infer<typeof WishlistProduct>;
 

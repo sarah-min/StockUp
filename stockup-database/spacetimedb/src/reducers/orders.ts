@@ -1,5 +1,7 @@
 import { t } from "spacetimedb";
+import { SenderError } from "spacetimedb/server";
 import spacetimedb from "..";
+import { requireCurrentUser } from "../helpers/auth";
 
 const ORDER_SERVER_ID = 0n;
 const SERVER_STATUSES = ["placing", "placed", "delivered", "failed"];
@@ -9,7 +11,7 @@ function requireOrderServer(ctx: any) {
   const server = ctx.db.orderServer.id.find(ORDER_SERVER_ID);
 
   if (!server || !server.identity.equals(ctx.sender)) {
-    throw new Error("Only the order server can do this");
+    throw new SenderError("Only the order server can do this");
   }
 }
 
@@ -19,7 +21,7 @@ export const claimOrderServer = spacetimedb.reducer((ctx) => {
 
   if (existing) {
     if (!existing.identity.equals(ctx.sender)) {
-      throw new Error("Order server is already claimed");
+      throw new SenderError("Order server is already claimed");
     }
     return;
   }
@@ -32,16 +34,18 @@ export const claimOrderServer = spacetimedb.reducer((ctx) => {
 export const beginPurchase = spacetimedb.reducer(
   { productId: t.u64() },
   (ctx, { productId }) => {
+    const currentUser = requireCurrentUser(ctx);
     const item = ctx.db.wishlistProduct.id.find(productId);
 
-    if (!item || !item.owner.equals(ctx.sender)) {
-      throw new Error("Wishlist item not found");
+    if (!item || item.userId !== currentUser.id) {
+      throw new SenderError("Wishlist item not found");
     }
 
     ctx.db.wishlistProduct.id.delete(productId);
     ctx.db.wishlistOrder.insert({
       id: 0n,
       owner: ctx.sender,
+      userId: currentUser.id,
       url: item.url,
       retailer: item.retailer,
       title: item.title,
@@ -77,17 +81,17 @@ export const syncOrder = spacetimedb.reducer(
     requireOrderServer(ctx);
 
     if (!SERVER_STATUSES.includes(status)) {
-      throw new Error(`Invalid order status: ${status}`);
+      throw new SenderError(`Invalid order status: ${status}`);
     }
 
     const order = ctx.db.wishlistOrder.id.find(id);
 
     if (!order) {
-      throw new Error("Order not found");
+      throw new SenderError("Order not found");
     }
 
     if (FINAL_STATUSES.includes(order.status)) {
-      throw new Error(`Order is already ${order.status}`);
+      throw new SenderError(`Order is already ${order.status}`);
     }
 
     ctx.db.wishlistOrder.id.update({
